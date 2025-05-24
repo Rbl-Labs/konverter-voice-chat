@@ -316,7 +316,18 @@
                     
                     // Get session configuration from n8n
                     const response = await fetch(`https://n8n.lomeai.com/webhook/voice-session?session=${this.sessionToken}&action=initialize`);
-                    const data = await response.json();
+                    const rawData = await response.json();
+                    
+                    // Handle both array and direct response formats
+                    let data;
+                    if (Array.isArray(rawData)) {
+                        // Handle array format from n8n
+                        const responseBody = rawData[0].body;
+                        data = typeof responseBody === 'string' ? JSON.parse(responseBody) : responseBody;
+                    } else {
+                        // Handle direct JSON format
+                        data = rawData;
+                    }
                     
                     if (!data.success) {
                         throw new Error(data.error || 'Failed to initialize session');
