@@ -3,12 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Konverter.ai Voice</title>
+    <title>Gemini Live Voice</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --accent-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --background-dark: #0a0a0f;
+            --surface-dark: #141420;
+            --surface-light: rgba(255, 255, 255, 0.08);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.7);
+            --text-muted: rgba(255, 255, 255, 0.5);
+            --border-subtle: rgba(255, 255, 255, 0.1);
+            --shadow-glow: 0 8px 32px rgba(102, 126, 234, 0.15);
+            --shadow-strong: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -17,474 +32,694 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0A0F2C 0%, #1A1B46 100%);
-            color: white;
-            padding: 0;
+            background: var(--background-dark);
+            color: var(--text-primary);
             min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
             overflow-x: hidden;
+            position: relative;
+            font-feature-settings: 'cv11', 'ss01';
+            -webkit-font-smoothing: antialiased;
         }
 
-        .chat-container {
+        /* Animated Background */
+        .background-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 100%;
-            height: 100vh;
-            background: rgba(10, 15, 44, 0.8);
-            backdrop-filter: blur(20px);
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+
+        .bg-gradient {
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 20% 20%, rgba(102, 126, 234, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(118, 75, 162, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 40% 60%, rgba(240, 147, 251, 0.05) 0%, transparent 50%);
+            animation: gradientShift 15s ease-in-out infinite;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { transform: translateX(-25%) translateY(-25%) rotate(0deg); }
+            50% { transform: translateX(-30%) translateY(-20%) rotate(180deg); }
+        }
+
+        .floating-particles {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        .particle {
+            position: absolute;
+            background: rgba(102, 126, 234, 0.3);
+            border-radius: 50%;
+            pointer-events: none;
+            animation: float 20s infinite linear;
+        }
+
+        @keyframes float {
+            from {
+                transform: translateY(100vh) translateX(0px) rotate(0deg);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            to {
+                transform: translateY(-100px) translateX(100px) rotate(360deg);
+                opacity: 0;
+            }
+        }
+
+        /* Main Container */
+        .app-container {
             display: flex;
             flex-direction: column;
+            min-height: 100vh;
             position: relative;
+            z-index: 1;
         }
 
+        /* Header */
         .header {
-            padding: 30px 20px 20px;
+            padding: clamp(20px, 5vh, 40px) 20px 20px;
             text-align: center;
             position: relative;
-            z-index: 10;
+        }
+
+        .logo-container {
+            margin-bottom: 24px;
+            position: relative;
         }
 
         .logo {
-            width: 60px;
-            height: 60px;
-            margin: 0 auto 15px;
-            background: linear-gradient(135deg, #5B42F3 0%, #00DDEB 100%);
-            border-radius: 50%;
+            width: 72px;
+            height: 72px;
+            margin: 0 auto;
+            background: var(--primary-gradient);
+            border-radius: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 28px;
-            box-shadow: 0 8px 32px rgba(91, 66, 243, 0.3);
+            font-size: 36px;
+            box-shadow: var(--shadow-glow);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            animation: shimmer 3s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
         }
 
         .title {
-            font-size: 24px;
-            font-weight: 700;
-            margin-bottom: 5px;
-            background: linear-gradient(135deg, #5B42F3 0%, #00DDEB 100%);
+            font-size: clamp(28px, 6vw, 36px);
+            font-weight: 800;
+            margin-bottom: 8px;
+            background: var(--primary-gradient);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            letter-spacing: -0.5px;
+            background-clip: text;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
         }
 
         .subtitle {
-            font-size: 14px;
-            font-weight: 400;
-            opacity: 0.8;
-            margin-bottom: 10px;
-            letter-spacing: 0.2px;
+            font-size: 16px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            margin-bottom: 20px;
+            letter-spacing: 0.01em;
+        }
+
+        /* Status Indicator */
+        .status-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 20px;
         }
 
         .status {
             font-size: 14px;
-            font-weight: 500;
-            padding: 6px 16px;
+            font-weight: 600;
+            padding: 8px 20px;
             border-radius: 20px;
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.1);
-            margin-bottom: 10px;
+            background: var(--surface-light);
+            border: 1px solid var(--border-subtle);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .status.connected {
-            background: rgba(46, 213, 115, 0.2);
-            color: #2ed573;
+        .status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            transition: all 0.3s ease;
         }
 
-        .status.error {
-            background: rgba(255, 107, 107, 0.2);
-            color: #ff6b6b;
+        .status.connected::before { background: #4ade80; }
+        .status.error::before { background: #f87171; }
+        .status.recording::before { 
+            background: #fbbf24; 
+            animation: pulse-dot 1.5s infinite;
         }
 
-        .status.recording {
-            background: rgba(255, 167, 38, 0.2);
-            color: #ffa726;
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
         }
 
+        /* Conversation Area */
         .conversation-area {
             flex: 1;
-            overflow-y: auto;
-            padding: 20px;
             display: flex;
             flex-direction: column;
-            position: relative;
+            padding: 0 20px;
+            max-height: 60vh;
+            min-height: 200px;
         }
 
         .conversation-log {
             flex: 1;
             overflow-y: auto;
-            padding: 10px;
-            margin-bottom: 20px;
-            scrollbar-width: thin;
-            scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+            padding: 20px 0;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
         }
 
         .conversation-log::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        .conversation-log::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .conversation-log::-webkit-scrollbar-thumb {
-            background-color: rgba(255, 255, 255, 0.2);
-            border-radius: 20px;
+            display: none;
         }
 
         .message {
-            margin-bottom: 16px;
-            padding: 12px 16px;
-            border-radius: 16px;
-            max-width: 85%;
-            word-wrap: break-word;
+            margin-bottom: 20px;
+            animation: messageSlide 0.5s ease-out;
             position: relative;
-            animation: fadeIn 0.3s ease-out;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            line-height: 1.5;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes messageSlide {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-bubble {
+            max-width: 85%;
+            padding: 16px 20px;
+            border-radius: 24px;
+            position: relative;
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-subtle);
+            line-height: 1.5;
+            font-size: 15px;
+            word-wrap: break-word;
         }
 
         .message.user {
-            background: linear-gradient(135deg, #5B42F3 0%, #4A36C4 100%);
-            margin-left: auto;
-            border-bottom-right-radius: 4px;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .message.user .message-bubble {
+            background: var(--primary-gradient);
+            border-bottom-right-radius: 8px;
+            box-shadow: var(--shadow-glow);
         }
 
         .message.ai {
-            background: linear-gradient(135deg, #2C3E50 0%, #1A1B46 100%);
-            margin-right: auto;
-            border-bottom-left-radius: 4px;
-        }
-
-        .message-avatar {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            position: absolute;
-            bottom: -10px;
             display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            justify-content: flex-start;
         }
 
-        .message.user .message-avatar {
-            background: #5B42F3;
-            right: -10px;
+        .message.ai .message-bubble {
+            background: var(--surface-light);
+            border-bottom-left-radius: 8px;
         }
 
-        .message.ai .message-avatar {
-            background: #00DDEB;
-            left: -10px;
+        .message-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-align: center;
         }
 
-        .controls-container {
-            position: relative;
-            padding: 20px;
+        /* Voice Controls */
+        .voice-controls {
+            padding: 30px 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
+            gap: 30px;
         }
 
-        .waveform {
+        /* Enhanced Waveform */
+        .waveform-container {
             width: 100%;
-            height: 80px;
+            max-width: 400px;
+            height: 120px;
+            position: relative;
+            background: var(--surface-light);
             border-radius: 20px;
-            margin-bottom: 30px;
+            border: 1px solid var(--border-subtle);
+            backdrop-filter: blur(10px);
             display: flex;
             align-items: center;
             justify-content: center;
-            position: relative;
             overflow: hidden;
-            background: rgba(255, 255, 255, 0.05);
-            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .waveform {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            width: 100%;
+            height: 80px;
         }
 
         .wave-bar {
             width: 4px;
-            background: rgba(91, 66, 243, 0.6);
-            margin: 0 2px;
-            border-radius: 4px;
-            transition: height 0.1s ease;
+            background: var(--primary-gradient);
+            border-radius: 2px;
+            transition: all 0.15s ease;
+            min-height: 4px;
         }
 
         .wave-bar:nth-child(odd) {
-            background: rgba(0, 221, 235, 0.6);
+            background: var(--accent-gradient);
         }
 
-        .mic-button-container {
+        /* Main Voice Button */
+        .voice-button-container {
             position: relative;
-            margin-bottom: 30px;
-            display: flex;
-            justify-content: center;
-            width: 100%;
-        }
-
-        .mic-button {
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            border: none;
-            background: linear-gradient(135deg, #5B42F3 0%, #00DDEB 100%);
-            color: white;
-            font-size: 32px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 8px 32px rgba(91, 66, 243, 0.3);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 10;
         }
 
-        .mic-button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 12px 40px rgba(91, 66, 243, 0.4);
-        }
-
-        .mic-button.recording {
-            background: linear-gradient(135deg, #FF4757, #FF6B6B);
-            animation: pulse 1.5s ease-in-out infinite alternate;
-            box-shadow: 0 8px 32px rgba(255, 71, 87, 0.3);
-        }
-
-        .mic-button.connected {
-            background: linear-gradient(135deg, #5B42F3, #00DDEB);
-        }
-
-        .mic-button:disabled {
-            background: #2C3E50;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-            opacity: 0.7;
-        }
-
-        @keyframes pulse {
-            from { transform: scale(1); box-shadow: 0 8px 32px rgba(255, 71, 87, 0.3); }
-            to { transform: scale(1.1); box-shadow: 0 12px 40px rgba(255, 71, 87, 0.5); }
-        }
-
-        .mic-button-ring {
-            position: absolute;
+        .voice-button {
             width: 100px;
             height: 100px;
             border-radius: 50%;
-            border: 2px solid rgba(91, 66, 243, 0.3);
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 5;
-        }
-
-        .mic-button-ring.outer {
-            width: 120px;
-            height: 120px;
-            border: 1px solid rgba(91, 66, 243, 0.2);
-        }
-
-        .mic-button.recording + .mic-button-ring {
-            border-color: rgba(255, 71, 87, 0.3);
-            animation: ring-pulse 2s ease-in-out infinite;
-        }
-
-        .mic-button.recording + .mic-button-ring + .mic-button-ring.outer {
-            border-color: rgba(255, 71, 87, 0.2);
-            animation: ring-pulse-delay 2s ease-in-out infinite;
-        }
-
-        @keyframes ring-pulse {
-            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
-            50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.5; }
-            100% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
-        }
-
-        @keyframes ring-pulse-delay {
-            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.3; }
-            100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-        }
-
-        .controls {
+            border: none;
+            background: var(--primary-gradient);
+            color: white;
+            font-size: 42px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: var(--shadow-glow), var(--shadow-strong);
             display: flex;
-            gap: 15px;
+            align-items: center;
             justify-content: center;
-            width: 100%;
+            position: relative;
+            z-index: 10;
+            overflow: hidden;
         }
 
-        .control-btn {
+        .voice-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transform: translateX(-100%) translateY(-100%) rotate(45deg);
+            transition: transform 0.6s;
+        }
+
+        .voice-button:hover::before {
+            transform: translateX(100%) translateY(100%) rotate(45deg);
+        }
+
+        .voice-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3), var(--shadow-strong);
+        }
+
+        .voice-button:active {
+            transform: scale(0.95);
+        }
+
+        .voice-button.listening {
+            background: var(--success-gradient);
+            animation: listeningPulse 2s ease-in-out infinite;
+        }
+
+        .voice-button.processing {
+            background: var(--accent-gradient);
+            animation: processingRotate 1s linear infinite;
+        }
+
+        .voice-button:disabled {
+            background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        @keyframes listeningPulse {
+            0%, 100% { 
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(79, 172, 254, 0.7);
+            }
+            50% { 
+                transform: scale(1.05);
+                box-shadow: 0 0 0 20px rgba(79, 172, 254, 0);
+            }
+        }
+
+        @keyframes processingRotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Ripple Effect */
+        .ripple-container {
+            position: absolute;
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            pointer-events: none;
+        }
+
+        .ripple {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid rgba(102, 126, 234, 0.3);
+            animation: rippleEffect 2s ease-out infinite;
+        }
+
+        .ripple:nth-child(2) { animation-delay: 0.5s; }
+        .ripple:nth-child(3) { animation-delay: 1s; }
+
+        @keyframes rippleEffect {
+            0% {
+                transform: scale(0.8);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(1.4);
+                opacity: 0;
+            }
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .action-btn {
             padding: 12px 24px;
             border: none;
-            border-radius: 30px;
-            background: rgba(91, 66, 243, 0.2);
-            color: white;
+            border-radius: 12px;
+            background: var(--surface-light);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 14px;
-            font-weight: 500;
-            letter-spacing: 0.5px;
-            backdrop-filter: blur(5px);
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+            min-width: 100px;
         }
 
-        .control-btn:hover {
-            background: rgba(91, 66, 243, 0.3);
+        .action-btn:hover {
+            background: var(--surface-light);
             transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
         }
 
-        .control-btn:disabled {
+        .action-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
             transform: none;
         }
 
-        .particles {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            z-index: 1;
-            pointer-events: none;
+        .action-btn.primary {
+            background: var(--primary-gradient);
+            border: none;
         }
 
-        .particle {
-            position: absolute;
-            background: rgba(91, 66, 243, 0.2);
-            border-radius: 50%;
-            pointer-events: none;
-        }
-
+        /* Session Info */
         .session-info {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
             font-size: 10px;
-            opacity: 0.5;
-            z-index: 5;
+            color: var(--text-muted);
+            background: var(--surface-light);
+            padding: 6px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            backdrop-filter: blur(10px);
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
         }
 
-        /* Hidden debug info */
-        .debug-info {
-            display: none;
+        /* Responsive Design */
+        @media (max-width: 480px) {
+            .voice-button {
+                width: 90px;
+                height: 90px;
+                font-size: 38px;
+            }
+            
+            .ripple-container {
+                width: 130px;
+                height: 130px;
+            }
+            
+            .waveform-container {
+                height: 100px;
+            }
+            
+            .action-buttons {
+                gap: 12px;
+            }
+            
+            .action-btn {
+                padding: 10px 20px;
+                font-size: 13px;
+                min-width: 80px;
+            }
+        }
+
+        /* Accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        /* Focus Styles */
+        .voice-button:focus-visible,
+        .action-btn:focus-visible {
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
+        }
+
+        /* Loading States */
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="particles" id="particles"></div>
-        
-        <div class="header">
-            <div class="logo">🎙️</div>
+    <div class="background-animation">
+        <div class="bg-gradient"></div>
+        <div class="floating-particles" id="floatingParticles"></div>
+    </div>
+
+    <div class="app-container">
+        <header class="header">
+            <div class="logo-container">
+                <div class="logo">🎙️</div>
+            </div>
             <h1 class="title">Konverter.ai Voice</h1>
-            <p class="subtitle">Premium AI voice conversation</p>
-            <div class="status" id="status">Initializing...</div>
-        </div>
-        
-        <div class="conversation-area">
+            <p class="subtitle">Natural AI conversation experience</p>
+            <div class="status-container">
+                <div class="status" id="status">Initializing...</div>
+            </div>
+        </header>
+
+        <main class="conversation-area">
             <div class="conversation-log" id="conversationLog">
-                <div class="message ai">
-                    👋 Welcome to Konverter.ai Voice! I'm your premium AI voice assistant. Tap Connect to start our conversation.
-                    <div class="message-avatar">K</div>
+                <div class="message ai" id="welcomeMessage">
+                    <div class="message-bubble">
+                        👋 Welcome to Gemini Live Voice! I'm ready for natural conversation. Tap the microphone once to start - I'll listen and respond automatically.
+                    </div>
+                    <div class="message-time" id="welcomeTime"></div>
                 </div>
             </div>
-        </div>
-        
-        <div class="controls-container">
-            <div class="waveform" id="waveform">
-                <!-- Wave bars will be generated here -->
+        </main>
+
+        <section class="voice-controls">
+            <div class="waveform-container">
+                <div class="waveform" id="waveform"></div>
             </div>
-            
-            <div class="mic-button-container">
-                <button class="mic-button" id="micButton" disabled>
+
+            <div class="voice-button-container">
+                <div class="ripple-container" id="rippleContainer">
+                    <div class="ripple"></div>
+                    <div class="ripple"></div>
+                    <div class="ripple"></div>
+                </div>
+                <button class="voice-button" id="voiceButton" disabled aria-label="Start voice conversation">
                     🎤
                 </button>
-                <div class="mic-button-ring"></div>
-                <div class="mic-button-ring outer"></div>
             </div>
-            
-            <div class="controls">
-                <button class="control-btn" id="connectBtn" disabled>Connect</button>
-                <button class="control-btn" id="disconnectBtn" disabled>Disconnect</button>
+
+            <div class="action-buttons">
+                <button class="action-btn primary" id="connectBtn" disabled>
+                    <span id="connectBtnText">Connect</span>
+                </button>
+                <button class="action-btn" id="endBtn" disabled>End Call</button>
             </div>
-        </div>
-        
+        </section>
+
         <div class="session-info" id="sessionInfo">
-            Session: Loading...
-        </div>
-        
-        <div class="debug-info" id="debugInfo">
-            Debug info will appear here...
+            Initializing session...
         </div>
     </div>
 
     <script type="module">
-        class GeminiNativeAudioChat {
+        class GeminiLiveVoiceChat {
             constructor() {
                 this.sessionToken = null;
-                this.geminiClient = null;
-                this.liveSession = null;
-                this.isRecording = false;
                 this.isConnected = false;
+                this.isListening = false;
+                this.isProcessing = false;
+                this.ws = null;
                 this.mediaRecorder = null;
                 this.audioContext = null;
                 this.analyser = null;
-                this.dataArray = null;
+                this.stream = null;
                 this.animationId = null;
-                this.responseQueue = [];
-                this.audioChunks = [];
+                this.sessionConfig = null;
                 
+                this.initializeElements();
                 this.initializeUI();
                 this.initializeSession();
             }
 
-            initializeUI() {
+            initializeElements() {
                 this.statusEl = document.getElementById('status');
-                this.micButton = document.getElementById('micButton');
+                this.voiceButton = document.getElementById('voiceButton');
                 this.connectBtn = document.getElementById('connectBtn');
-                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.endBtn = document.getElementById('endBtn');
                 this.conversationLog = document.getElementById('conversationLog');
                 this.sessionInfo = document.getElementById('sessionInfo');
                 this.waveform = document.getElementById('waveform');
-                this.debugInfo = document.getElementById('debugInfo');
-
-                // Event listeners
-                this.micButton.addEventListener('click', () => this.toggleRecording());
-                this.connectBtn.addEventListener('click', () => this.connectToWebSocket());
-                this.disconnectBtn.addEventListener('click', () => this.disconnect());
-
-                // Generate wave bars
-                this.generateWaveBars();
+                this.rippleContainer = document.getElementById('rippleContainer');
+                this.connectBtnText = document.getElementById('connectBtnText');
+                this.welcomeTime = document.getElementById('welcomeTime');
             }
 
-            generateWaveBars() {
+            initializeUI() {
+                // Set welcome time
+                this.welcomeTime.textContent = new Date().toLocaleTimeString();
+
+                // Generate waveform bars
+                this.generateWaveformBars();
+
+                // Create floating particles
+                this.createFloatingParticles();
+
+                // Event listeners
+                this.voiceButton.addEventListener('click', () => this.toggleVoiceConversation());
+                this.connectBtn.addEventListener('click', () => this.handleConnect());
+                this.endBtn.addEventListener('click', () => this.endConversation());
+
+                // Keyboard shortcuts
+                document.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space' && !e.repeat) {
+                        e.preventDefault();
+                        if (this.isConnected) this.toggleVoiceConversation();
+                    }
+                });
+            }
+
+            generateWaveformBars() {
                 this.waveform.innerHTML = '';
                 for (let i = 0; i < 50; i++) {
                     const bar = document.createElement('div');
                     bar.className = 'wave-bar';
-                    bar.style.height = '10px';
+                    bar.style.height = '4px';
                     this.waveform.appendChild(bar);
                 }
             }
 
-            addDebugInfo(message) {
-                const timestamp = new Date().toLocaleTimeString();
-                this.debugInfo.innerHTML += `${timestamp}: ${message}<br>`;
-                this.debugInfo.scrollTop = this.debugInfo.scrollHeight;
-                console.log(message);
+            createFloatingParticles() {
+                const container = document.getElementById('floatingParticles');
+                const particleCount = window.innerWidth < 768 ? 15 : 25;
+
+                for (let i = 0; i < particleCount; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = 'particle';
+                    
+                    const size = Math.random() * 4 + 2;
+                    const startX = Math.random() * window.innerWidth;
+                    const delay = Math.random() * 20;
+                    
+                    particle.style.width = `${size}px`;
+                    particle.style.height = `${size}px`;
+                    particle.style.left = `${startX}px`;  
+                    particle.style.animationDelay = `${delay}s`;
+                    particle.style.animationDuration = `${20 + Math.random() * 10}s`;
+                    
+                    container.appendChild(particle);
+                }
             }
 
             async initializeSession() {
                 try {
-                    this.addDebugInfo('Starting session initialization...');
+                    this.updateStatus('Getting session configuration...', '');
                     
-                    // Get session token from URL
                     const urlParams = new URLSearchParams(window.location.search);
                     this.sessionToken = urlParams.get('session');
                     
@@ -492,184 +727,222 @@
                         throw new Error('No session token provided');
                     }
 
-                    this.addDebugInfo(`Session token: ${this.sessionToken.substring(0, 20)}...`);
-                    this.updateStatus('Getting session config...');
-                    
                     // Get session configuration from n8n
                     const apiUrl = `https://n8n.lomeai.com/webhook/voice-session?session=${this.sessionToken}&action=initialize`;
-                    this.addDebugInfo(`Calling API: ${apiUrl}`);
-                    
                     const response = await fetch(apiUrl);
-                    const rawData = await response.json();
                     
-                    this.addDebugInfo(`Raw response: ${JSON.stringify(rawData).substring(0, 200)}...`);
-                    
-                    // Handle the response format from n8n
-                    let data;
-                    if (Array.isArray(rawData) && rawData.length > 0) {
-                        data = rawData[0];
-                        this.addDebugInfo('Parsed array response');
-                    } else {
-                        data = rawData;
-                        this.addDebugInfo('Direct response format');
+                    if (!response.ok) {
+                        throw new Error(`API request failed: ${response.status}`);
                     }
                     
-                    if (!data || !data.success) {
-                        throw new Error(data?.error || 'Failed to initialize session');
+                    const data = await response.json();
+                    const sessionData = Array.isArray(data) ? data[0] : data;
+                    
+                    if (!sessionData?.success) {
+                        throw new Error(sessionData?.error || 'Session initialization failed');
                     }
 
-                    this.sessionConfig = data.config;
-                    this.sessionInfo.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
+                    this.sessionConfig = sessionData.config;
+                    this.sessionInfo.textContent = `Session: ${sessionData.sessionId} | User: ${sessionData.userId}`;
                     
-                    this.addDebugInfo(`Model: ${this.sessionConfig.model}`);
-                    this.addDebugInfo(`API Key: ${this.sessionConfig.apiKey ? 'Present' : 'Missing'}`);
-                    
-                    this.updateStatus('Ready to connect');
+                    this.updateStatus('Ready to connect', '');
                     this.connectBtn.disabled = false;
                     
                 } catch (error) {
-                    this.addDebugInfo(`Session init error: ${error.message}`);
                     console.error('Session initialization failed:', error);
-                    this.updateStatus('Failed to initialize session: ' + error.message, 'error');
+                    this.updateStatus(`Failed: ${error.message}`, 'error');
                 }
             }
 
-            async connectToWebSocket() {
+            async handleConnect() {
+                if (this.isConnected) {
+                    this.disconnect();
+                    return;
+                }
+
                 try {
-                    this.addDebugInfo('Connecting to WebSocket proxy...');
-                    
-                    // Get the WebSocket URL from the session config
+                    this.connectBtn.disabled = true;
+                    this.connectBtnText.innerHTML = '<div class="loading-spinner"></div>';
+                    this.updateStatus('Connecting to Gemini...', '');
+
                     const wsUrl = this.sessionConfig.websocketProxyUrl;
                     if (!wsUrl) {
-                        throw new Error('No WebSocket proxy URL provided');
+                        throw new Error('No WebSocket URL provided');
                     }
-                    
-                    // Create WebSocket connection with session token
+
                     this.ws = new WebSocket(`${wsUrl}&session=${this.sessionToken}`);
                     
-                    // Set up WebSocket handlers
                     this.ws.onopen = () => {
-                        this.addDebugInfo('WebSocket connection opened');
-                        this.isConnected = true;
-                        this.updateStatus('Connected! Click microphone to talk', 'connected');
-                        this.micButton.disabled = false;
-                        this.micButton.classList.add('connected');
-                        this.disconnectBtn.disabled = false;
-                        this.connectBtn.disabled = true;
-                        this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+                        console.log('WebSocket connected');
+                        
+                        // Initialize Gemini connection
+                        this.ws.send(JSON.stringify({
+                            type: 'connect_gemini'
+                        }));
                     };
                     
                     this.ws.onmessage = (event) => {
-                        try {
-                            const message = JSON.parse(event.data);
-                            this.handleWebSocketMessage(message);
-                        } catch (error) {
-                            this.addDebugInfo(`Failed to parse message: ${error.message}`);
-                        }
+                        const message = JSON.parse(event.data);
+                        this.handleWebSocketMessage(message);
                     };
                     
                     this.ws.onerror = (error) => {
-                        this.addDebugInfo(`WebSocket error: ${error.message}`);
-                        this.updateStatus('Connection error', 'error');
-                        this.handleDisconnection();
+                        console.error('WebSocket error:', error);
+                        this.handleConnectionError();
                     };
                     
-                    this.ws.onclose = (event) => {
-                        this.addDebugInfo(`WebSocket closed: ${event.reason}`);
-                        this.updateStatus('Connection closed', 'error');
+                    this.ws.onclose = () => {
+                        console.log('WebSocket closed');
                         this.handleDisconnection();
                     };
                     
                 } catch (error) {
-                    this.addDebugInfo(`Connection error: ${error.message}`);
-                    console.error('Failed to connect:', error);
-                    this.updateStatus('Connection failed: ' + error.message, 'error');
-                    this.connectBtn.disabled = false;
+                    console.error('Connection failed:', error);
+                    this.updateStatus(`Connection failed: ${error.message}`, 'error');
+                    this.resetConnectButton();
                 }
             }
 
             handleWebSocketMessage(message) {
                 switch (message.type) {
+                    case 'session_initialized':
+                        console.log('Session initialized');
+                        break;
+                        
+                    case 'gemini_connected':
+                        this.isConnected = true;
+                        this.updateStatus('Connected! Tap microphone to start', 'connected');
+                        this.voiceButton.disabled = false;
+                        this.connectBtnText.textContent = 'Disconnect';
+                        this.connectBtn.disabled = false;
+                        this.endBtn.disabled = false;
+                        this.addMessage('🤖 Connected! I\'m ready for natural conversation. Just tap the microphone once and start talking.', 'ai');
+                        break;
+                        
                     case 'audio_response':
                         this.playAudioResponse(message.audioData);
                         break;
                         
                     case 'text_response':
-                        this.addMessage('🤖 ' + message.text, 'ai');
-                        break;
-                        
-                    case 'error':
-                        this.addDebugInfo(`Server error: ${message.message}`);
-                        this.updateStatus(message.message, 'error');
+                        this.addMessage(message.text, 'ai');
                         break;
                         
                     case 'turn_complete':
-                        this.addDebugInfo('Turn completed');
+                        this.setProcessingState(false);
+                        break;
+                        
+                    case 'error':
+                        console.error('Server error:', message.message);
+                        this.updateStatus(`Error: ${message.message}`, 'error');
                         break;
                         
                     default:
-                        this.addDebugInfo(`Unknown message type: ${message.type}`);
+                        console.log('Unknown message type:', message.type);
                 }
             }
 
-            async sendAudioToServer(audioData) {
-                if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-                    this.addDebugInfo('WebSocket not connected');
+            async toggleVoiceConversation() {
+                if (!this.isConnected) {
+                    this.updateStatus('Please connect first', 'error');
                     return;
                 }
 
-                try {
-                    this.ws.send(JSON.stringify({
-                        type: 'audio_input',
-                        audioData: audioData,
-                        mimeType: 'audio/pcm;rate=16000'
-                    }));
-                    
-                    this.addDebugInfo(`Audio sent: ${audioData.length} bytes`);
-                    
-                } catch (error) {
-                    this.addDebugInfo(`Failed to send audio: ${error.message}`);
-                    console.error('Error sending audio:', error);
+                if (this.isListening) {
+                    this.stopListening();
+                } else {
+                    await this.startListening();
                 }
             }
 
-            async handleGeminiMessage(message) {
-                // Handle different message types from Gemini Live API
-                if (message.text) {
-                    this.addMessage('🤖 ' + message.text, 'ai');
-                    this.addDebugInfo(`Text response: ${message.text.substring(0, 50)}...`);
+            async startListening() {
+                try {
+                    this.updateStatus('Starting microphone...', '');
+                    
+                    this.stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            channelCount: 1,
+                            sampleRate: 16000,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+
+                    // Set up audio analysis for visualization
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    const source = this.audioContext.createMediaStreamSource(this.stream);
+                    source.connect(this.analyser);
+                    this.analyser.fftSize = 256;
+
+                    // Set up MediaRecorder for streaming
+                    this.mediaRecorder = new MediaRecorder(this.stream, {
+                        mimeType: 'audio/webm;codecs=opus'
+                    });
+
+                    this.mediaRecorder.ondataavailable = async (event) => {
+                        if (event.data.size > 0 && this.ws?.readyState === WebSocket.OPEN) {
+                            const audioBuffer = await event.data.arrayBuffer();
+                            const base64Audio = this.arrayBufferToBase64(audioBuffer);
+                            
+                            this.ws.send(JSON.stringify({
+                                type: 'audio_input',
+                                audioData: base64Audio,
+                                mimeType: 'audio/pcm;rate=16000'
+                            }));
+                        }
+                    };
+
+                    // Start continuous recording
+                    this.mediaRecorder.start(250); // 250ms chunks for responsiveness
+                    
+                    this.isListening = true;
+                    this.voiceButton.classList.add('listening');
+                    this.voiceButton.innerHTML = '🔴';
+                    this.rippleContainer.style.display = 'block';
+                    this.updateStatus('Listening - Speak naturally, I\'ll respond automatically', 'recording');
+                    
+                    this.startWaveformAnimation();
+                    this.addMessage('🎤 Conversation started - I\'m listening and will respond automatically', 'user');
+                    
+                } catch (error) {
+                    console.error('Failed to start listening:', error);
+                    this.updateStatus('Microphone access denied', 'error');
+                }
+            }
+
+            stopListening() {
+                if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+                    this.mediaRecorder.stop();
                 }
                 
-                if (message.data) {
-                    // Handle native audio response (24kHz PCM as per docs)
-                    this.addDebugInfo(`Audio response received: ${message.data.length} bytes`);
-                    await this.playAudioResponse(message.data);
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
                 }
                 
-                if (message.serverContent) {
-                    this.addDebugInfo('Server content received');
-                    if (message.serverContent.turnComplete) {
-                        this.addDebugInfo('Turn completed');
-                    }
-                }
+                this.isListening = false;
+                this.voiceButton.classList.remove('listening');
+                this.voiceButton.innerHTML = '🎤';
+                this.rippleContainer.style.display = 'none';
+                this.updateStatus('Connected - Tap microphone to talk again', 'connected');
+                
+                this.stopWaveformAnimation();
+                this.addMessage('🎤 Listening stopped', 'user');
             }
 
             async playAudioResponse(audioData) {
                 try {
-                    this.addDebugInfo('Playing audio response...');
+                    this.setProcessingState(true);
                     
-                    // Convert base64 audio to playable format
-                    // According to docs: Audio output always uses 24kHz, 16-bit PCM
+                    // Decode base64 audio data (24kHz PCM from Gemini Live API)
                     const binaryString = window.atob(audioData);
                     const bytes = new Uint8Array(binaryString.length);
                     for (let i = 0; i < binaryString.length; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
                     
-                    // Create audio context and decode
+                    // Create audio context for 24kHz PCM playback
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    
-                    // For 24kHz PCM audio from Gemini
                     const sampleRate = 24000;
                     const channels = 1;
                     const audioBuffer = audioContext.createBuffer(channels, bytes.length / 2, sampleRate);
@@ -684,131 +957,89 @@
                     const source = audioContext.createBufferSource();
                     source.buffer = audioBuffer;
                     source.connect(audioContext.destination);
-                    source.start();
                     
-                    this.addMessage('🔊 [Playing native audio response]', 'ai');
-                    this.addDebugInfo('Audio playback started');
-                    
-                } catch (error) {
-                    this.addDebugInfo(`Audio playback error: ${error.message}`);
-                    console.error('Error playing audio:', error);
-                    this.addMessage('🔊 [Received audio response - playback failed]', 'ai');
-                }
-            }
-
-            async toggleRecording() {
-                if (!this.isConnected) {
-                    this.updateStatus('Please connect first', 'error');
-                    return;
-                }
-
-                if (this.isRecording) {
-                    this.stopRecording();
-                } else {
-                    await this.startContinuousConversation();
-                }
-            }
-
-            async startContinuousConversation() {
-                try {
-                    this.addDebugInfo('Starting continuous conversation...');
-                    
-                    // Request microphone access with correct format for Gemini
-                    // Input audio is natively 16kHz but API will resample as needed
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: {
-                            channelCount: 1,
-                            sampleRate: 16000,
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        } 
-                    });
-
-                    this.addDebugInfo('Microphone access granted');
-
-                    // Set up audio context for visualization
-                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    this.analyser = this.audioContext.createAnalyser();
-                    const source = this.audioContext.createMediaStreamSource(stream);
-                    source.connect(this.analyser);
-
-                    this.analyser.fftSize = 256;
-                    const bufferLength = this.analyser.frequencyBinCount;
-                    this.dataArray = new Uint8Array(bufferLength);
-
-                    // Start continuous recording for real-time streaming
-                    this.stream = stream;
-                    this.isRecording = true;
-                    
-                    this.micButton.classList.add('recording');
-                    this.micButton.innerHTML = '⏹️';
-                    this.updateStatus('Conversation active - Speak naturally', 'recording');
-                    
-                    this.startWaveAnimation();
-                    this.addMessage('🎤 Continuous conversation started - speak naturally and Gemini will respond automatically', 'user');
-                    
-                    // Start streaming audio to Gemini in real-time with automatic VAD
-                    this.startContinuousAudioStreaming();
-
-                } catch (error) {
-                    this.addDebugInfo(`Recording start error: ${error.message}`);
-                    console.error('Failed to start recording:', error);
-                    this.updateStatus('Microphone access denied: ' + error.message, 'error');
-                }
-            }
-
-            async startContinuousAudioStreaming() {
-                try {
-                    // Create a media recorder for real-time streaming
-                    this.mediaRecorder = new MediaRecorder(this.stream, {
-                        mimeType: 'audio/webm;codecs=opus'
-                    });
-                    
-                    this.audioChunks = [];
-                    
-                    this.mediaRecorder.ondataavailable = async (event) => {
-                        if (event.data.size > 0) {
-                            this.audioChunks.push(event.data);
-                            // Send audio chunk to WebSocket server
-                            const audioBuffer = await event.data.arrayBuffer();
-                            const base64Audio = this.arrayBufferToBase64(audioBuffer);
-                            await this.sendAudioToServer(base64Audio);
-                        }
+                    source.onended = () => {
+                        this.setProcessingState(false);
                     };
                     
-                    // Start recording with smaller time slices for more responsive streaming
-                    this.mediaRecorder.start(500); // 500ms chunks for better responsiveness
-                    
-                    this.addDebugInfo('Continuous audio streaming started with automatic VAD');
+                    source.start();
+                    this.animateWaveformForAudio(audioBuffer.duration * 1000);
                     
                 } catch (error) {
-                    this.addDebugInfo(`Audio streaming error: ${error.message}`);
-                    console.error('Failed to start audio streaming:', error);
+                    console.error('Audio playback failed:', error);
+                    this.setProcessingState(false);
                 }
             }
 
-            stopRecording() {
-                if (this.isRecording) {
-                    this.addDebugInfo('Stopping conversation...');
-                    
-                    this.isRecording = false;
-                    
-                    if (this.mediaRecorder) {
-                        this.mediaRecorder.stop();
+            setProcessingState(processing) {
+                this.isProcessing = processing;
+                if (processing) {
+                    this.voiceButton.classList.add('processing');
+                    this.updateStatus('Gemini is responding...', 'recording');
+                } else {
+                    this.voiceButton.classList.remove('processing');
+                    if (this.isListening) {
+                        this.updateStatus('Listening - Continue speaking', 'recording');
+                    } else {
+                        this.updateStatus('Connected - Tap microphone to talk', 'connected');
                     }
-                    
-                    if (this.stream) {
-                        this.stream.getTracks().forEach(track => track.stop());
-                    }
-                    
-                    this.micButton.classList.remove('recording');
-                    this.micButton.innerHTML = '🎤';
-                    this.updateStatus('Connected! Click microphone to start conversation', 'connected');
-                    
-                    this.stopWaveAnimation();
-                    this.addMessage('🎤 Conversation ended', 'user');
                 }
+            }
+
+            startWaveformAnimation() {
+                const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                
+                const animate = () => {
+                    if (!this.isListening) return;
+                    
+                    this.analyser.getByteFrequencyData(dataArray);
+                    
+                    const bars = this.waveform.querySelectorAll('.wave-bar');
+                    bars.forEach((bar, index) => {
+                        const value = dataArray[index] || 0;
+                        const height = Math.max(4, (value / 255) * 80);
+                        bar.style.height = height + 'px';
+                    });
+                    
+                    this.animationId = requestAnimationFrame(animate);
+                };
+                
+                animate();
+            }
+
+            stopWaveformAnimation() {
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+                
+                const bars = this.waveform.querySelectorAll('.wave-bar');
+                bars.forEach(bar => {
+                    bar.style.height = '4px';
+                });
+            }
+
+            animateWaveformForAudio(duration) {
+                let elapsed = 0;
+                const interval = 50;
+                
+                const animate = () => {
+                    if (elapsed >= duration) {
+                        this.stopWaveformAnimation();
+                        return;
+                    }
+                    
+                    const bars = this.waveform.querySelectorAll('.wave-bar');
+                    bars.forEach(bar => {
+                        const height = Math.max(4, Math.random() * 60 + 20);
+                        bar.style.height = height + 'px';
+                    });
+                    
+                    elapsed += interval;
+                    setTimeout(animate, interval);
+                };
+                
+                animate();
             }
 
             arrayBufferToBase64(buffer) {
@@ -820,203 +1051,104 @@
                 return window.btoa(binary);
             }
 
-            startWaveAnimation() {
-                const animate = () => {
-                    if (!this.isRecording) return;
-                    
-                    this.analyser.getByteFrequencyData(this.dataArray);
-                    
-                    const bars = this.waveform.querySelectorAll('.wave-bar');
-                    bars.forEach((bar, index) => {
-                        const value = this.dataArray[index] || 0;
-                        const height = Math.max(5, (value / 255) * 50);
-                        bar.style.height = height + 'px';
-                    });
-                    
-                    this.animationId = requestAnimationFrame(animate);
-                };
-                animate();
-            }
-
-            stopWaveAnimation() {
-                if (this.animationId) {
-                    cancelAnimationFrame(this.animationId);
-                    this.animationId = null;
-                }
-                
-                const bars = this.waveform.querySelectorAll('.wave-bar');
-                bars.forEach(bar => {
-                    bar.style.height = '10px';
-                });
-            }
-
-            disconnect() {
-                this.addDebugInfo('Disconnecting...');
-                if (this.ws) {
-                    this.ws.close();
-                }
-                this.handleDisconnection();
-            }
-
-            handleDisconnection() {
-                this.isConnected = false;
-                this.isRecording = false;
-                
-                this.micButton.disabled = true;
-                this.micButton.classList.remove('connected', 'recording');
-                this.micButton.innerHTML = '🎤';
-                
-                this.connectBtn.disabled = false;
-                this.disconnectBtn.disabled = true;
-                
-                this.stopWaveAnimation();
-                this.updateStatus('Disconnected. Click Connect to start again');
-                
-                if (this.stream) {
-                    this.stream.getTracks().forEach(track => track.stop());
-                }
-            }
-
-            updateStatus(message, type = '') {
-                this.statusEl.textContent = message;
-                this.statusEl.className = 'status ' + type;
-            }
-
             addMessage(text, sender) {
                 const messageEl = document.createElement('div');
                 messageEl.className = `message ${sender}`;
-                messageEl.textContent = text;
                 
-                // Add avatar to message
-                const avatarEl = document.createElement('div');
-                avatarEl.className = 'message-avatar';
-                avatarEl.textContent = sender === 'ai' ? 'K' : 'U';
-                messageEl.appendChild(avatarEl);
+                const bubbleEl = document.createElement('div');
+                bubbleEl.className = 'message-bubble';
+                bubbleEl.textContent = text;
+                
+                const timeEl = document.createElement('div');
+                timeEl.className = 'message-time';
+                timeEl.textContent = new Date().toLocaleTimeString();
+                
+                messageEl.appendChild(bubbleEl);
+                messageEl.appendChild(timeEl);
                 
                 this.conversationLog.appendChild(messageEl);
                 this.conversationLog.scrollTop = this.conversationLog.scrollHeight;
                 
-                // Animate waveform when AI is speaking
-                if (sender === 'ai' && text.includes('[Playing native audio response]')) {
-                    this.animateWaveformForAudio();
+                // Remove welcome message after first interaction
+                const welcomeMsg = document.getElementById('welcomeMessage');
+                if (welcomeMsg && this.conversationLog.children.length > 2) {
+                    welcomeMsg.remove();
                 }
             }
-            
-            animateWaveformForAudio() {
-                // Simulate audio waveform animation when AI is speaking
-                let animationDuration = 0;
-                const animate = () => {
-                    if (animationDuration > 3000) return; // Stop after 3 seconds
-                    
-                    const bars = this.waveform.querySelectorAll('.wave-bar');
-                    bars.forEach((bar) => {
-                        const height = Math.max(5, Math.random() * 40);
-                        bar.style.height = height + 'px';
-                    });
-                    
-                    animationDuration += 100;
-                    setTimeout(animate, 100);
-                };
-                animate();
+
+            endConversation() {
+                this.stopListening();
+                this.disconnect();
+                this.addMessage('👋 Conversation ended. Thank you for using Gemini Live Voice!', 'ai');
+            }
+
+            disconnect() {
+                this.stopListening();
+                
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+                
+                this.handleDisconnection();
+            }
+
+            handleConnectionError() {
+                this.updateStatus('Connection failed - Please try again', 'error');
+                this.resetConnectButton();
+            }
+
+            handleDisconnection() {
+                this.isConnected = false;
+                this.isListening = false;
+                this.isProcessing = false;
+                
+                this.voiceButton.disabled = true;
+                this.voiceButton.classList.remove('listening', 'processing');
+                this.voiceButton.innerHTML = '🎤';
+                this.rippleContainer.style.display = 'none';
+                
+                this.resetConnectButton();
+                this.endBtn.disabled = true;
+                
+                this.updateStatus('Disconnected - Click Connect to start again', '');
+                this.stopWaveformAnimation();
+            }
+
+            resetConnectButton() {
+                this.connectBtn.disabled = false;
+                this.connectBtnText.textContent = 'Connect';
+            }
+
+            updateStatus(message, type) {
+                this.statusEl.textContent = message;
+                this.statusEl.className = `status ${type}`;
             }
         }
 
-        // Initialize the app when the page loads
+        // Initialize the application
         window.addEventListener('load', () => {
-            new GeminiNativeAudioChat();
+            new GeminiLiveVoiceChat();
         });
 
-        // Create animated particles
-        class ParticleAnimation {
-            constructor() {
-                this.particles = [];
-                this.container = document.getElementById('particles');
-                this.containerWidth = this.container.clientWidth;
-                this.containerHeight = this.container.clientHeight;
-                
-                this.createParticles();
-                this.animate();
-                
-                // Handle resize
-                window.addEventListener('resize', () => {
-                    this.containerWidth = this.container.clientWidth;
-                    this.containerHeight = this.container.clientHeight;
-                });
-            }
-            
-            createParticles() {
-                // Clear existing particles
-                this.container.innerHTML = '';
-                this.particles = [];
-                
-                // Create new particles
-                const particleCount = Math.min(50, Math.floor(this.containerWidth * this.containerHeight / 10000));
-                
-                for (let i = 0; i < particleCount; i++) {
-                    const particle = document.createElement('div');
-                    particle.className = 'particle';
-                    
-                    // Random properties
-                    const size = Math.random() * 6 + 2;
-                    const x = Math.random() * this.containerWidth;
-                    const y = Math.random() * this.containerHeight;
-                    const speedX = (Math.random() - 0.5) * 0.5;
-                    const speedY = (Math.random() - 0.5) * 0.5;
-                    const opacity = Math.random() * 0.3 + 0.1;
-                    
-                    // Set styles
-                    particle.style.width = `${size}px`;
-                    particle.style.height = `${size}px`;
-                    particle.style.left = `${x}px`;
-                    particle.style.top = `${y}px`;
-                    particle.style.opacity = opacity;
-                    
-                    // Store particle data
-                    this.particles.push({
-                        element: particle,
-                        x, y,
-                        speedX, speedY,
-                        size
-                    });
-                    
-                    // Add to DOM
-                    this.container.appendChild(particle);
-                }
-            }
-            
-            animate() {
-                // Update particle positions
-                this.particles.forEach(particle => {
-                    // Update position
-                    particle.x += particle.speedX;
-                    particle.y += particle.speedY;
-                    
-                    // Boundary check
-                    if (particle.x < -particle.size) particle.x = this.containerWidth;
-                    if (particle.x > this.containerWidth) particle.x = -particle.size;
-                    if (particle.y < -particle.size) particle.y = this.containerHeight;
-                    if (particle.y > this.containerHeight) particle.y = -particle.size;
-                    
-                    // Update DOM
-                    particle.element.style.left = `${particle.x}px`;
-                    particle.element.style.top = `${particle.y}px`;
-                });
-                
-                // Continue animation
-                requestAnimationFrame(() => this.animate());
-            }
-        }
-
-        // Telegram WebApp specific code
+        // Telegram WebApp integration
         if (window.Telegram?.WebApp) {
             window.Telegram.WebApp.ready();
             window.Telegram.WebApp.expand();
+            
+            // Set theme colors
+            window.Telegram.WebApp.setHeaderColor('#0a0a0f');
+            window.Telegram.WebApp.setBackgroundColor('#0a0a0f');
         }
-        
-        // Initialize particle animation
-        window.addEventListener('load', () => {
-            new ParticleAnimation();
-        });
+
+        // Service Worker for offline functionality (optional)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(() => {
+                    // Silently fail if no service worker
+                });
+            });
+        }
     </script>
 </body>
 </html>
