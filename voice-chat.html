@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Konverter.ai Voice Chat Mini App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/web-audio-api/0.2.2/web-audio-api.min.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -35,9 +34,6 @@
             padding: 30px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
             text-align: center;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
         }
 
         .logo {
@@ -68,11 +64,10 @@
             cursor: pointer;
             transition: all 0.3s ease;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-            margin: 0 auto 20px;
+            margin-bottom: 20px;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 0;
         }
 
         .mic-button:hover {
@@ -195,24 +190,6 @@
             margin-right: 20px;
         }
 
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .hidden {
-            display: none;
-        }
-
         .session-info {
             font-size: 12px;
             opacity: 0.7;
@@ -221,13 +198,25 @@
             background: rgba(0, 0, 0, 0.2);
             border-radius: 8px;
         }
+
+        .debug-info {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            text-align: left;
+            max-height: 100px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
         <div class="logo">🎙️</div>
         <h1 class="title">Konverter.ai Voice Chat</h1>
-        <p class="subtitle">Real-time AI conversation</p>
+        <p class="subtitle">Real-time AI voice conversation</p>
         
         <div class="status" id="status">Initializing...</div>
         
@@ -240,24 +229,25 @@
         </div>
         
         <div class="controls">
-            <button class="control-btn" id="connectBtn">Connect</button>
+            <button class="control-btn" id="connectBtn" disabled>Connect</button>
             <button class="control-btn" id="disconnectBtn" disabled>Disconnect</button>
         </div>
         
         <div class="conversation-log" id="conversationLog">
-            <div class="message ai">👋 Hi! Click Connect to start our voice conversation!</div>
+            <div class="message ai">👋 Hi! Click Connect to start our native audio conversation with affective dialog!</div>
         </div>
         
         <div class="session-info" id="sessionInfo">
             Session: Loading...
         </div>
+        
+        <div class="debug-info" id="debugInfo">
+            Debug info will appear here...
+        </div>
     </div>
 
     <script type="module">
-        // Import Gemini AI library - use the correct package for Live API
-        import { GoogleGenAI } from 'https://esm.run/@google/genai';
-
-        class VoiceChatApp {
+        class GeminiNativeAudioChat {
             constructor() {
                 this.sessionToken = null;
                 this.geminiClient = null;
@@ -269,6 +259,8 @@
                 this.analyser = null;
                 this.dataArray = null;
                 this.animationId = null;
+                this.responseQueue = [];
+                this.audioChunks = [];
                 
                 this.initializeUI();
                 this.initializeSession();
@@ -282,6 +274,7 @@
                 this.conversationLog = document.getElementById('conversationLog');
                 this.sessionInfo = document.getElementById('sessionInfo');
                 this.waveform = document.getElementById('waveform');
+                this.debugInfo = document.getElementById('debugInfo');
 
                 // Event listeners
                 this.micButton.addEventListener('click', () => this.toggleRecording());
@@ -302,8 +295,17 @@
                 }
             }
 
+            addDebugInfo(message) {
+                const timestamp = new Date().toLocaleTimeString();
+                this.debugInfo.innerHTML += `${timestamp}: ${message}<br>`;
+                this.debugInfo.scrollTop = this.debugInfo.scrollHeight;
+                console.log(message);
+            }
+
             async initializeSession() {
                 try {
+                    this.addDebugInfo('Starting session initialization...');
+                    
                     // Get session token from URL
                     const urlParams = new URLSearchParams(window.location.search);
                     this.sessionToken = urlParams.get('session');
@@ -312,23 +314,27 @@
                         throw new Error('No session token provided');
                     }
 
+                    this.addDebugInfo(`Session token: ${this.sessionToken.substring(0, 20)}...`);
                     this.updateStatus('Getting session config...');
                     
                     // Get session configuration from n8n
-                    const response = await fetch(`https://n8n.lomeai.com/webhook/voice-session?session=${this.sessionToken}&action=initialize`);
+                    const apiUrl = `https://n8n.lomeai.com/webhook/voice-session?session=${this.sessionToken}&action=initialize`;
+                    this.addDebugInfo(`Calling API: ${apiUrl}`);
+                    
+                    const response = await fetch(apiUrl);
                     const rawData = await response.json();
                     
-                    // Handle the actual response format from n8n
+                    this.addDebugInfo(`Raw response: ${JSON.stringify(rawData).substring(0, 200)}...`);
+                    
+                    // Handle the response format from n8n
                     let data;
                     if (Array.isArray(rawData) && rawData.length > 0) {
-                        // n8n returns array format - get first item
                         data = rawData[0];
+                        this.addDebugInfo('Parsed array response');
                     } else {
-                        // Direct JSON format
                         data = rawData;
+                        this.addDebugInfo('Direct response format');
                     }
-                    
-                    console.log('Parsed data:', data);
                     
                     if (!data || !data.success) {
                         throw new Error(data?.error || 'Failed to initialize session');
@@ -337,32 +343,91 @@
                     this.sessionConfig = data.config;
                     this.sessionInfo.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
                     
-                    // Initialize Gemini client with Live API support
-                    console.log('API Key:', this.sessionConfig.apiKey);
-                    this.geminiClient = new GoogleGenAI({ apiKey: this.sessionConfig.apiKey });
-                    console.log('Gemini client created:', this.geminiClient);
-                    console.log('Live API available:', !!this.geminiClient.live);
+                    this.addDebugInfo(`Model: ${this.sessionConfig.model}`);
+                    this.addDebugInfo(`API Key: ${this.sessionConfig.apiKey ? 'Present' : 'Missing'}`);
+                    
+                    // Load Gemini SDK dynamically
+                    await this.loadGeminiSDK();
                     
                     this.updateStatus('Ready to connect');
                     this.connectBtn.disabled = false;
                     
                 } catch (error) {
+                    this.addDebugInfo(`Session init error: ${error.message}`);
                     console.error('Session initialization failed:', error);
                     this.updateStatus('Failed to initialize session: ' + error.message, 'error');
                 }
             }
 
+            async loadGeminiSDK() {
+                try {
+                    this.addDebugInfo('Loading Gemini SDK...');
+                    
+                    // Import the Gemini SDK using the correct package
+                    const { GoogleGenAI } = await import('https://esm.run/@google/genai@0.21.0');
+                    
+                    this.addDebugInfo('SDK loaded successfully');
+                    
+                    // Initialize Gemini client with API key
+                    this.geminiClient = new GoogleGenAI({ apiKey: this.sessionConfig.apiKey });
+                    
+                    this.addDebugInfo('Gemini client initialized');
+                    this.addDebugInfo(`Live API available: ${this.geminiClient.live ? 'Yes' : 'No'}`);
+                    
+                } catch (error) {
+                    this.addDebugInfo(`SDK load error: ${error.message}`);
+                    console.error('Failed to load Gemini SDK:', error);
+                    throw new Error('Failed to load Gemini SDK: ' + error.message);
+                }
+            }
+
             async connectToGemini() {
                 try {
+                    this.addDebugInfo('Starting Gemini connection...');
                     this.updateStatus('Connecting to Gemini...', 'connecting');
                     this.connectBtn.disabled = true;
 
-                    // Create live session
+                    // Use the native audio model from our config
+                    const model = this.sessionConfig.model; // Should be 'gemini-2.5-flash-preview-native-audio-dialog'
+                    
+                    // Configure for native audio output with affective dialog
+                    const config = {
+                        response_modalities: ['AUDIO'], // Native audio output
+                        enable_affective_dialog: true,  // Emotion-aware responses
+                        proactivity: {
+                            proactive_audio: true       // Smart response decisions
+                        },
+                        speech_config: {
+                            voice_config: {
+                                prebuilt_voice_config: {
+                                    voice_name: 'Aoede'  // Use Aoede voice
+                                }
+                            }
+                        },
+                        realtime_input_config: {
+                            automatic_activity_detection: {
+                                disabled: false,
+                                start_of_speech_sensitivity: 'START_SENSITIVITY_MEDIUM',
+                                end_of_speech_sensitivity: 'END_SENSITIVITY_MEDIUM'
+                            }
+                        },
+                        system_instruction: {
+                            parts: [{
+                                text: "You are a helpful AI assistant having a natural voice conversation with a user through Telegram. Be conversational, friendly, and respond naturally with appropriate emotion and tone. Keep responses concise but engaging."
+                            }]
+                        }
+                    };
+
+                    this.addDebugInfo(`Connecting with model: ${model}`);
+                    this.addDebugInfo(`Config: ${JSON.stringify(config, null, 2).substring(0, 300)}...`);
+
+                    // Create live session using the native audio model
                     this.liveSession = await this.geminiClient.live.connect({
-                        model: this.sessionConfig.model,
-                        config: this.sessionConfig.config,
+                        model: model,
+                        config: config,
                         callbacks: {
                             onopen: () => {
+                                this.addDebugInfo('WebSocket connection opened');
                                 console.log('Gemini Live API connected');
                                 this.isConnected = true;
                                 this.updateStatus('Connected! Click microphone to talk', 'connected');
@@ -370,18 +435,22 @@
                                 this.micButton.classList.add('connected');
                                 this.disconnectBtn.disabled = false;
                                 this.connectBtn.disabled = true;
-                                this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+                                this.addMessage('🤖 Connected! I can hear you now with native audio and affective dialog. Click the microphone to start talking!', 'ai');
                             },
                             onmessage: (message) => {
+                                this.addDebugInfo(`Received message type: ${message.type || 'unknown'}`);
                                 console.log('Received message:', message);
+                                this.responseQueue.push(message);
                                 this.handleGeminiMessage(message);
                             },
                             onerror: (error) => {
+                                this.addDebugInfo(`Connection error: ${error.message}`);
                                 console.error('Gemini error:', error);
                                 this.updateStatus('Connection error: ' + error.message, 'error');
                                 this.handleDisconnection();
                             },
                             onclose: (event) => {
+                                this.addDebugInfo(`Connection closed: ${event.reason}`);
                                 console.log('Connection closed:', event.reason);
                                 this.updateStatus('Connection closed', 'error');
                                 this.handleDisconnection();
@@ -389,48 +458,77 @@
                         }
                     });
 
+                    this.addDebugInfo('Live session created successfully');
+
                 } catch (error) {
+                    this.addDebugInfo(`Connection failed: ${error.message}`);
                     console.error('Failed to connect to Gemini:', error);
                     this.updateStatus('Connection failed: ' + error.message, 'error');
                     this.connectBtn.disabled = false;
                 }
             }
 
-            handleGeminiMessage(message) {
+            async handleGeminiMessage(message) {
+                // Handle different message types from Gemini Live API
                 if (message.text) {
                     this.addMessage('🤖 ' + message.text, 'ai');
+                    this.addDebugInfo(`Text response: ${message.text.substring(0, 50)}...`);
                 }
                 
                 if (message.data) {
-                    // Handle audio response
-                    this.playAudioResponse(message.data);
+                    // Handle native audio response (24kHz PCM as per docs)
+                    this.addDebugInfo(`Audio response received: ${message.data.length} bytes`);
+                    await this.playAudioResponse(message.data);
+                }
+                
+                if (message.serverContent) {
+                    this.addDebugInfo('Server content received');
+                    if (message.serverContent.turnComplete) {
+                        this.addDebugInfo('Turn completed');
+                    }
                 }
             }
 
             async playAudioResponse(audioData) {
                 try {
+                    this.addDebugInfo('Playing audio response...');
+                    
                     // Convert base64 audio to playable format
-                    const audioBuffer = this.base64ToArrayBuffer(audioData);
+                    // According to docs: Audio output always uses 24kHz, 16-bit PCM
+                    const binaryString = window.atob(audioData);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    // Create audio context and decode
                     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const decodedAudio = await audioContext.decodeAudioData(audioBuffer);
+                    
+                    // For 24kHz PCM audio from Gemini
+                    const sampleRate = 24000;
+                    const channels = 1;
+                    const audioBuffer = audioContext.createBuffer(channels, bytes.length / 2, sampleRate);
+                    
+                    // Convert bytes to 16-bit PCM samples
+                    const channelData = audioBuffer.getChannelData(0);
+                    for (let i = 0; i < channelData.length; i++) {
+                        const sample = (bytes[i * 2 + 1] << 8) | bytes[i * 2];
+                        channelData[i] = sample < 32768 ? sample / 32768 : (sample - 65536) / 32768;
+                    }
                     
                     const source = audioContext.createBufferSource();
-                    source.buffer = decodedAudio;
+                    source.buffer = audioBuffer;
                     source.connect(audioContext.destination);
                     source.start();
                     
+                    this.addMessage('🔊 [Playing native audio response]', 'ai');
+                    this.addDebugInfo('Audio playback started');
+                    
                 } catch (error) {
+                    this.addDebugInfo(`Audio playback error: ${error.message}`);
                     console.error('Error playing audio:', error);
+                    this.addMessage('🔊 [Received audio response - playback failed]', 'ai');
                 }
-            }
-
-            base64ToArrayBuffer(base64) {
-                const binaryString = window.atob(base64);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-                return bytes.buffer;
             }
 
             async toggleRecording() {
@@ -448,13 +546,21 @@
 
             async startRecording() {
                 try {
-                    // Request microphone access
+                    this.addDebugInfo('Starting audio recording...');
+                    
+                    // Request microphone access with correct format for Gemini
+                    // Input audio is natively 16kHz but API will resample as needed
                     const stream = await navigator.mediaDevices.getUserMedia({ 
                         audio: {
                             channelCount: 1,
-                            sampleRate: 16000
+                            sampleRate: 16000,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
                         } 
                     });
+
+                    this.addDebugInfo('Microphone access granted');
 
                     // Set up audio context for visualization
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -466,21 +572,8 @@
                     const bufferLength = this.analyser.frequencyBinCount;
                     this.dataArray = new Uint8Array(bufferLength);
 
-                    // Set up media recorder
-                    this.mediaRecorder = new MediaRecorder(stream);
-                    this.audioChunks = [];
-
-                    this.mediaRecorder.ondataavailable = (event) => {
-                        this.audioChunks.push(event.data);
-                    };
-
-                    this.mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-                        this.sendAudioToGemini(audioBlob);
-                        this.audioChunks = [];
-                    };
-
-                    this.mediaRecorder.start();
+                    // Start continuous recording for real-time streaming
+                    this.stream = stream;
                     this.isRecording = true;
                     
                     this.micButton.classList.add('recording');
@@ -488,39 +581,55 @@
                     this.updateStatus('Recording... Click to stop', 'recording');
                     
                     this.startWaveAnimation();
-                    this.addMessage('🎤 Recording started...', 'user');
+                    this.addMessage('🎤 Recording started - streaming to Gemini...', 'user');
+                    
+                    // Start streaming audio to Gemini in real-time
+                    this.startAudioStreaming();
 
                 } catch (error) {
+                    this.addDebugInfo(`Recording start error: ${error.message}`);
                     console.error('Failed to start recording:', error);
-                    this.updateStatus('Microphone access denied', 'error');
+                    this.updateStatus('Microphone access denied: ' + error.message, 'error');
                 }
             }
 
-            stopRecording() {
-                if (this.mediaRecorder && this.isRecording) {
-                    this.mediaRecorder.stop();
-                    this.isRecording = false;
-                    
-                    this.micButton.classList.remove('recording');
-                    this.micButton.innerHTML = '🎤';
-                    this.updateStatus('Processing audio...', 'connecting');
-                    
-                    this.stopWaveAnimation();
-                    
-                    // Stop all tracks
-                    if (this.mediaRecorder.stream) {
-                        this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                    }
-                }
-            }
-
-            async sendAudioToGemini(audioBlob) {
+            async startAudioStreaming() {
                 try {
-                    // Convert audio to the format expected by Gemini (16-bit PCM)
-                    const audioBuffer = await audioBlob.arrayBuffer();
+                    // Create a media recorder for real-time streaming
+                    this.mediaRecorder = new MediaRecorder(this.stream, {
+                        mimeType: 'audio/webm;codecs=opus'
+                    });
+                    
+                    this.audioChunks = [];
+                    
+                    this.mediaRecorder.ondataavailable = async (event) => {
+                        if (event.data.size > 0) {
+                            this.audioChunks.push(event.data);
+                            // Send audio chunk to Gemini immediately
+                            await this.sendAudioChunkToGemini(event.data);
+                        }
+                    };
+                    
+                    // Start recording with small time slices for real-time streaming
+                    this.mediaRecorder.start(1000); // 1 second chunks
+                    
+                    this.addDebugInfo('Audio streaming started');
+                    
+                } catch (error) {
+                    this.addDebugInfo(`Audio streaming error: ${error.message}`);
+                    console.error('Failed to start audio streaming:', error);
+                }
+            }
+
+            async sendAudioChunkToGemini(audioChunk) {
+                try {
+                    // Convert audio chunk to the format expected by Gemini
+                    const audioBuffer = await audioChunk.arrayBuffer();
                     const base64Audio = this.arrayBufferToBase64(audioBuffer);
                     
-                    // Send audio to Gemini Live API
+                    this.addDebugInfo(`Sending audio chunk: ${audioBuffer.byteLength} bytes`);
+                    
+                    // Send audio to Gemini Live API using sendRealtimeInput
                     await this.liveSession.sendRealtimeInput({
                         audio: {
                             data: base64Audio,
@@ -528,12 +637,32 @@
                         }
                     });
                     
-                    this.updateStatus('Connected! Click microphone to talk', 'connected');
-                    this.addMessage('🎤 Audio sent to Gemini', 'user');
-                    
                 } catch (error) {
-                    console.error('Failed to send audio:', error);
-                    this.updateStatus('Failed to send audio: ' + error.message, 'error');
+                    this.addDebugInfo(`Audio send error: ${error.message}`);
+                    console.error('Failed to send audio chunk:', error);
+                }
+            }
+
+            stopRecording() {
+                if (this.isRecording) {
+                    this.addDebugInfo('Stopping recording...');
+                    
+                    this.isRecording = false;
+                    
+                    if (this.mediaRecorder) {
+                        this.mediaRecorder.stop();
+                    }
+                    
+                    if (this.stream) {
+                        this.stream.getTracks().forEach(track => track.stop());
+                    }
+                    
+                    this.micButton.classList.remove('recording');
+                    this.micButton.innerHTML = '🎤';
+                    this.updateStatus('Connected! Click microphone to talk', 'connected');
+                    
+                    this.stopWaveAnimation();
+                    this.addMessage('🎤 Recording stopped', 'user');
                 }
             }
 
@@ -570,7 +699,6 @@
                     this.animationId = null;
                 }
                 
-                // Reset wave bars
                 const bars = this.waveform.querySelectorAll('.wave-bar');
                 bars.forEach(bar => {
                     bar.style.height = '10px';
@@ -578,6 +706,7 @@
             }
 
             disconnect() {
+                this.addDebugInfo('Disconnecting...');
                 if (this.liveSession) {
                     this.liveSession.close();
                 }
@@ -598,8 +727,8 @@
                 this.stopWaveAnimation();
                 this.updateStatus('Disconnected. Click Connect to start again');
                 
-                if (this.mediaRecorder && this.mediaRecorder.stream) {
-                    this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
                 }
             }
 
@@ -620,7 +749,7 @@
 
         // Initialize the app when the page loads
         window.addEventListener('load', () => {
-            new VoiceChatApp();
+            new GeminiNativeAudioChat();
         });
 
         // Telegram WebApp specific code
@@ -631,4 +760,3 @@
     </script>
 </body>
 </html>
-
