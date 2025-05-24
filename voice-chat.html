@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Native Audio Chat</title>
+    <title>Konverter.ai Voice</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             box-sizing: border-box;
@@ -13,10 +16,10 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0A0F2C 0%, #1A1B46 100%);
             color: white;
-            padding: 20px;
+            padding: 0;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -27,214 +30,389 @@
 
         .chat-container {
             width: 100%;
-            max-width: 400px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            height: 100vh;
+            background: rgba(10, 15, 44, 0.8);
+            backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .header {
+            padding: 30px 20px 20px;
             text-align: center;
+            position: relative;
+            z-index: 10;
         }
 
         .logo {
-            font-size: 48px;
-            margin-bottom: 20px;
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 15px;
+            background: linear-gradient(135deg, #5B42F3 0%, #00DDEB 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 8px 32px rgba(91, 66, 243, 0.3);
         }
 
         .title {
             font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 10px;
+            font-weight: 700;
+            margin-bottom: 5px;
+            background: linear-gradient(135deg, #5B42F3 0%, #00DDEB 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
         }
 
         .subtitle {
-            font-size: 16px;
+            font-size: 14px;
+            font-weight: 400;
             opacity: 0.8;
-            margin-bottom: 30px;
-        }
-
-        .mic-button {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            border: none;
-            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
-            color: white;
-            font-size: 48px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .mic-button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 6px 30px rgba(0, 0, 0, 0.3);
-        }
-
-        .mic-button.recording {
-            background: linear-gradient(45deg, #ff4757, #c44569);
-            animation: pulse 1.5s ease-in-out infinite alternate;
-        }
-
-        .mic-button.connected {
-            background: linear-gradient(45deg, #2ed573, #1e90ff);
-        }
-
-        .mic-button:disabled {
-            background: #666;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        @keyframes pulse {
-            from { transform: scale(1); }
-            to { transform: scale(1.1); }
+            margin-bottom: 10px;
+            letter-spacing: 0.2px;
         }
 
         .status {
-            font-size: 16px;
-            margin-bottom: 20px;
-            min-height: 24px;
+            font-size: 14px;
             font-weight: 500;
+            padding: 6px 16px;
+            border-radius: 20px;
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.1);
+            margin-bottom: 10px;
         }
 
         .status.connected {
+            background: rgba(46, 213, 115, 0.2);
             color: #2ed573;
         }
 
         .status.error {
+            background: rgba(255, 107, 107, 0.2);
             color: #ff6b6b;
         }
 
         .status.recording {
+            background: rgba(255, 167, 38, 0.2);
             color: #ffa726;
+        }
+
+        .conversation-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .conversation-log {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            margin-bottom: 20px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+        }
+
+        .conversation-log::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .conversation-log::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .conversation-log::-webkit-scrollbar-thumb {
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            padding: 12px 16px;
+            border-radius: 16px;
+            max-width: 85%;
+            word-wrap: break-word;
+            position: relative;
+            animation: fadeIn 0.3s ease-out;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            line-height: 1.5;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            background: linear-gradient(135deg, #5B42F3 0%, #4A36C4 100%);
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.ai {
+            background: linear-gradient(135deg, #2C3E50 0%, #1A1B46 100%);
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            position: absolute;
+            bottom: -10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .message.user .message-avatar {
+            background: #5B42F3;
+            right: -10px;
+        }
+
+        .message.ai .message-avatar {
+            background: #00DDEB;
+            left: -10px;
+        }
+
+        .controls-container {
+            position: relative;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .waveform {
+            width: 100%;
+            height: 80px;
+            border-radius: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.05);
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .wave-bar {
+            width: 4px;
+            background: rgba(91, 66, 243, 0.6);
+            margin: 0 2px;
+            border-radius: 4px;
+            transition: height 0.1s ease;
+        }
+
+        .wave-bar:nth-child(odd) {
+            background: rgba(0, 221, 235, 0.6);
+        }
+
+        .mic-button-container {
+            position: relative;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: center;
+            width: 100%;
+        }
+
+        .mic-button {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #5B42F3 0%, #00DDEB 100%);
+            color: white;
+            font-size: 32px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 32px rgba(91, 66, 243, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+
+        .mic-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 12px 40px rgba(91, 66, 243, 0.4);
+        }
+
+        .mic-button.recording {
+            background: linear-gradient(135deg, #FF4757, #FF6B6B);
+            animation: pulse 1.5s ease-in-out infinite alternate;
+            box-shadow: 0 8px 32px rgba(255, 71, 87, 0.3);
+        }
+
+        .mic-button.connected {
+            background: linear-gradient(135deg, #5B42F3, #00DDEB);
+        }
+
+        .mic-button:disabled {
+            background: #2C3E50;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+            opacity: 0.7;
+        }
+
+        @keyframes pulse {
+            from { transform: scale(1); box-shadow: 0 8px 32px rgba(255, 71, 87, 0.3); }
+            to { transform: scale(1.1); box-shadow: 0 12px 40px rgba(255, 71, 87, 0.5); }
+        }
+
+        .mic-button-ring {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: 2px solid rgba(91, 66, 243, 0.3);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 5;
+        }
+
+        .mic-button-ring.outer {
+            width: 120px;
+            height: 120px;
+            border: 1px solid rgba(91, 66, 243, 0.2);
+        }
+
+        .mic-button.recording + .mic-button-ring {
+            border-color: rgba(255, 71, 87, 0.3);
+            animation: ring-pulse 2s ease-in-out infinite;
+        }
+
+        .mic-button.recording + .mic-button-ring + .mic-button-ring.outer {
+            border-color: rgba(255, 71, 87, 0.2);
+            animation: ring-pulse-delay 2s ease-in-out infinite;
+        }
+
+        @keyframes ring-pulse {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
+            50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.5; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
+        }
+
+        @keyframes ring-pulse-delay {
+            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.3; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
         }
 
         .controls {
             display: flex;
             gap: 15px;
             justify-content: center;
-            margin-top: 20px;
+            width: 100%;
         }
 
         .control-btn {
-            padding: 10px 20px;
+            padding: 12px 24px;
             border: none;
-            border-radius: 25px;
-            background: rgba(255, 255, 255, 0.2);
+            border-radius: 30px;
+            background: rgba(91, 66, 243, 0.2);
             color: white;
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            backdrop-filter: blur(5px);
         }
 
         .control-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background: rgba(91, 66, 243, 0.3);
+            transform: translateY(-2px);
         }
 
         .control-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            transform: none;
         }
 
-        .waveform {
+        .particles {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
-            height: 60px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            margin: 20px 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
+            height: 100%;
             overflow: hidden;
+            z-index: 1;
+            pointer-events: none;
         }
 
-        .wave-bar {
-            width: 3px;
-            background: rgba(255, 255, 255, 0.6);
-            margin: 0 1px;
-            border-radius: 2px;
-            transition: height 0.1s ease;
-        }
-
-        .conversation-log {
-            max-height: 200px;
-            overflow-y: auto;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 10px;
-            padding: 15px;
-            margin-top: 20px;
-            text-align: left;
-            font-size: 14px;
-        }
-
-        .message {
-            margin-bottom: 10px;
-            padding: 8px 12px;
-            border-radius: 12px;
-            word-wrap: break-word;
-        }
-
-        .message.user {
-            background: rgba(33, 150, 243, 0.3);
-            margin-left: 20px;
-        }
-
-        .message.ai {
-            background: rgba(76, 175, 80, 0.3);
-            margin-right: 20px;
+        .particle {
+            position: absolute;
+            background: rgba(91, 66, 243, 0.2);
+            border-radius: 50%;
+            pointer-events: none;
         }
 
         .session-info {
-            font-size: 12px;
-            opacity: 0.7;
-            margin-top: 20px;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.2);
-            border-radius: 8px;
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            font-size: 10px;
+            opacity: 0.5;
+            z-index: 5;
         }
 
+        /* Hidden debug info */
         .debug-info {
-            font-size: 11px;
-            opacity: 0.6;
-            margin-top: 10px;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 8px;
-            text-align: left;
-            max-height: 100px;
-            overflow-y: auto;
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <div class="logo">🎙️</div>
-        <h1 class="title">Gemini Native Audio</h1>
-        <p class="subtitle">Real-time AI voice conversation</p>
+        <div class="particles" id="particles"></div>
         
-        <div class="status" id="status">Initializing...</div>
-        
-        <button class="mic-button" id="micButton" disabled>
-            🎤
-        </button>
-        
-        <div class="waveform" id="waveform">
-            <!-- Wave bars will be generated here -->
+        <div class="header">
+            <div class="logo">🎙️</div>
+            <h1 class="title">Konverter.ai Voice</h1>
+            <p class="subtitle">Premium AI voice conversation</p>
+            <div class="status" id="status">Initializing...</div>
         </div>
         
-        <div class="controls">
-            <button class="control-btn" id="connectBtn" disabled>Connect</button>
-            <button class="control-btn" id="disconnectBtn" disabled>Disconnect</button>
+        <div class="conversation-area">
+            <div class="conversation-log" id="conversationLog">
+                <div class="message ai">
+                    👋 Welcome to Konverter.ai Voice! I'm your premium AI voice assistant. Tap Connect to start our conversation.
+                    <div class="message-avatar">K</div>
+                </div>
+            </div>
         </div>
         
-        <div class="conversation-log" id="conversationLog">
-            <div class="message ai">👋 Hi! Click Connect to start our native audio conversation with affective dialog!</div>
+        <div class="controls-container">
+            <div class="waveform" id="waveform">
+                <!-- Wave bars will be generated here -->
+            </div>
+            
+            <div class="mic-button-container">
+                <button class="mic-button" id="micButton" disabled>
+                    🎤
+                </button>
+                <div class="mic-button-ring"></div>
+                <div class="mic-button-ring outer"></div>
+            </div>
+            
+            <div class="controls">
+                <button class="control-btn" id="connectBtn" disabled>Connect</button>
+                <button class="control-btn" id="disconnectBtn" disabled>Disconnect</button>
+            </div>
         </div>
         
         <div class="session-info" id="sessionInfo">
@@ -527,13 +705,13 @@
                 if (this.isRecording) {
                     this.stopRecording();
                 } else {
-                    await this.startRecording();
+                    await this.startContinuousConversation();
                 }
             }
 
-            async startRecording() {
+            async startContinuousConversation() {
                 try {
-                    this.addDebugInfo('Starting audio recording...');
+                    this.addDebugInfo('Starting continuous conversation...');
                     
                     // Request microphone access with correct format for Gemini
                     // Input audio is natively 16kHz but API will resample as needed
@@ -565,13 +743,13 @@
                     
                     this.micButton.classList.add('recording');
                     this.micButton.innerHTML = '⏹️';
-                    this.updateStatus('Recording... Click to stop', 'recording');
+                    this.updateStatus('Conversation active - Speak naturally', 'recording');
                     
                     this.startWaveAnimation();
-                    this.addMessage('🎤 Recording started - streaming to Gemini...', 'user');
+                    this.addMessage('🎤 Continuous conversation started - speak naturally and Gemini will respond automatically', 'user');
                     
-                    // Start streaming audio to Gemini in real-time
-                    this.startAudioStreaming();
+                    // Start streaming audio to Gemini in real-time with automatic VAD
+                    this.startContinuousAudioStreaming();
 
                 } catch (error) {
                     this.addDebugInfo(`Recording start error: ${error.message}`);
@@ -580,7 +758,7 @@
                 }
             }
 
-            async startAudioStreaming() {
+            async startContinuousAudioStreaming() {
                 try {
                     // Create a media recorder for real-time streaming
                     this.mediaRecorder = new MediaRecorder(this.stream, {
@@ -593,14 +771,16 @@
                         if (event.data.size > 0) {
                             this.audioChunks.push(event.data);
                             // Send audio chunk to WebSocket server
-                            await this.sendAudioChunkToWebSocket(event.data);
+                            const audioBuffer = await event.data.arrayBuffer();
+                            const base64Audio = this.arrayBufferToBase64(audioBuffer);
+                            await this.sendAudioToServer(base64Audio);
                         }
                     };
                     
-                    // Start recording with small time slices for real-time streaming
-                    this.mediaRecorder.start(1000); // 1 second chunks
+                    // Start recording with smaller time slices for more responsive streaming
+                    this.mediaRecorder.start(500); // 500ms chunks for better responsiveness
                     
-                    this.addDebugInfo('Audio streaming started');
+                    this.addDebugInfo('Continuous audio streaming started with automatic VAD');
                     
                 } catch (error) {
                     this.addDebugInfo(`Audio streaming error: ${error.message}`);
@@ -608,31 +788,9 @@
                 }
             }
 
-            async sendAudioChunkToGemini(audioChunk) {
-                try {
-                    // Convert audio chunk to the format expected by Gemini
-                    const audioBuffer = await audioChunk.arrayBuffer();
-                    const base64Audio = this.arrayBufferToBase64(audioBuffer);
-                    
-                    this.addDebugInfo(`Sending audio chunk: ${audioBuffer.byteLength} bytes`);
-                    
-                    // Send audio to Gemini Live API using sendRealtimeInput
-                    await this.liveSession.sendRealtimeInput({
-                        audio: {
-                            data: base64Audio,
-                            mimeType: "audio/pcm;rate=16000"
-                        }
-                    });
-                    
-                } catch (error) {
-                    this.addDebugInfo(`Audio send error: ${error.message}`);
-                    console.error('Failed to send audio chunk:', error);
-                }
-            }
-
             stopRecording() {
                 if (this.isRecording) {
-                    this.addDebugInfo('Stopping recording...');
+                    this.addDebugInfo('Stopping conversation...');
                     
                     this.isRecording = false;
                     
@@ -646,10 +804,10 @@
                     
                     this.micButton.classList.remove('recording');
                     this.micButton.innerHTML = '🎤';
-                    this.updateStatus('Connected! Click microphone to talk', 'connected');
+                    this.updateStatus('Connected! Click microphone to start conversation', 'connected');
                     
                     this.stopWaveAnimation();
-                    this.addMessage('🎤 Recording stopped', 'user');
+                    this.addMessage('🎤 Conversation ended', 'user');
                 }
             }
 
@@ -729,8 +887,37 @@
                 messageEl.className = `message ${sender}`;
                 messageEl.textContent = text;
                 
+                // Add avatar to message
+                const avatarEl = document.createElement('div');
+                avatarEl.className = 'message-avatar';
+                avatarEl.textContent = sender === 'ai' ? 'K' : 'U';
+                messageEl.appendChild(avatarEl);
+                
                 this.conversationLog.appendChild(messageEl);
                 this.conversationLog.scrollTop = this.conversationLog.scrollHeight;
+                
+                // Animate waveform when AI is speaking
+                if (sender === 'ai' && text.includes('[Playing native audio response]')) {
+                    this.animateWaveformForAudio();
+                }
+            }
+            
+            animateWaveformForAudio() {
+                // Simulate audio waveform animation when AI is speaking
+                let animationDuration = 0;
+                const animate = () => {
+                    if (animationDuration > 3000) return; // Stop after 3 seconds
+                    
+                    const bars = this.waveform.querySelectorAll('.wave-bar');
+                    bars.forEach((bar) => {
+                        const height = Math.max(5, Math.random() * 40);
+                        bar.style.height = height + 'px';
+                    });
+                    
+                    animationDuration += 100;
+                    setTimeout(animate, 100);
+                };
+                animate();
             }
         }
 
@@ -739,11 +926,97 @@
             new GeminiNativeAudioChat();
         });
 
+        // Create animated particles
+        class ParticleAnimation {
+            constructor() {
+                this.particles = [];
+                this.container = document.getElementById('particles');
+                this.containerWidth = this.container.clientWidth;
+                this.containerHeight = this.container.clientHeight;
+                
+                this.createParticles();
+                this.animate();
+                
+                // Handle resize
+                window.addEventListener('resize', () => {
+                    this.containerWidth = this.container.clientWidth;
+                    this.containerHeight = this.container.clientHeight;
+                });
+            }
+            
+            createParticles() {
+                // Clear existing particles
+                this.container.innerHTML = '';
+                this.particles = [];
+                
+                // Create new particles
+                const particleCount = Math.min(50, Math.floor(this.containerWidth * this.containerHeight / 10000));
+                
+                for (let i = 0; i < particleCount; i++) {
+                    const particle = document.createElement('div');
+                    particle.className = 'particle';
+                    
+                    // Random properties
+                    const size = Math.random() * 6 + 2;
+                    const x = Math.random() * this.containerWidth;
+                    const y = Math.random() * this.containerHeight;
+                    const speedX = (Math.random() - 0.5) * 0.5;
+                    const speedY = (Math.random() - 0.5) * 0.5;
+                    const opacity = Math.random() * 0.3 + 0.1;
+                    
+                    // Set styles
+                    particle.style.width = `${size}px`;
+                    particle.style.height = `${size}px`;
+                    particle.style.left = `${x}px`;
+                    particle.style.top = `${y}px`;
+                    particle.style.opacity = opacity;
+                    
+                    // Store particle data
+                    this.particles.push({
+                        element: particle,
+                        x, y,
+                        speedX, speedY,
+                        size
+                    });
+                    
+                    // Add to DOM
+                    this.container.appendChild(particle);
+                }
+            }
+            
+            animate() {
+                // Update particle positions
+                this.particles.forEach(particle => {
+                    // Update position
+                    particle.x += particle.speedX;
+                    particle.y += particle.speedY;
+                    
+                    // Boundary check
+                    if (particle.x < -particle.size) particle.x = this.containerWidth;
+                    if (particle.x > this.containerWidth) particle.x = -particle.size;
+                    if (particle.y < -particle.size) particle.y = this.containerHeight;
+                    if (particle.y > this.containerHeight) particle.y = -particle.size;
+                    
+                    // Update DOM
+                    particle.element.style.left = `${particle.x}px`;
+                    particle.element.style.top = `${particle.y}px`;
+                });
+                
+                // Continue animation
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
         // Telegram WebApp specific code
         if (window.Telegram?.WebApp) {
             window.Telegram.WebApp.ready();
             window.Telegram.WebApp.expand();
         }
+        
+        // Initialize particle animation
+        window.addEventListener('load', () => {
+            new ParticleAnimation();
+        });
     </script>
 </body>
 </html>
