@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Konverter.ai Voice Chat</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/web-audio-api/0.2.2/web-audio-api.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            opacity: 0.8;
+            margin-bottom: 30px;
+        }
+
+        .mic-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            font-size: 48px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .mic-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .mic-button.recording {
+            background: linear-gradient(45deg, #ff4757, #c44569);
+            animation: pulse 1.5s ease-in-out infinite alternate;
+        }
+
+        .mic-button.connected {
+            background: linear-gradient(45deg, #2ed573, #1e90ff);
+        }
+
+        .mic-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        @keyframes pulse {
+            from { transform: scale(1); }
+            to { transform: scale(1.1); }
+        }
+
+        .status {
+            font-size: 16px;
+            margin-bottom: 20px;
+            min-height: 24px;
+            font-weight: 500;
+        }
+
+        .status.connected {
+            color: #2ed573;
+        }
+
+        .status.error {
+            color: #ff6b6b;
+        }
+
+        .status.recording {
+            color: #ffa726;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .control-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .waveform {
+            width: 100%;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .wave-bar {
+            width: 3px;
+            background: rgba(255, 255, 255, 0.6);
+            margin: 0 1px;
+            border-radius: 2px;
+            transition: height 0.1s ease;
+        }
+
+        .conversation-log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        .message {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 12px;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: rgba(33, 150, 243, 0.3);
+            margin-left: 20px;
+        }
+
+        .message.ai {
+            background: rgba(76, 175, 80, 0.3);
+            margin-right: 20px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .session-info {
+            font-size: 12px;
+            opacity: 0.7;
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="logo">🎙️</div>
+        <h1 class="title">Konverter.ai Voice Chat</h1>
+        <p class="subtitle">Real-time AI conversation</p>
+        
+        <div class="status" id="status">Initializing...</div>
+        
+        <button class="mic-button" id="micButton" disabled>
+            🎤
+        </button>
+        
+        <div class="waveform" id="waveform">
+            <!-- Wave bars will be generated here -->
+        </div>
+        
+        <div class="controls">
+            <button class="control-btn" id="connectBtn">Connect</button>
+            <button class="control-btn" id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+        
+        <div class="conversation-log" id="conversationLog">
+            <div class="message ai">👋 Hi! Click Connect to start our voice conversation!</div>
+        </div>
+        
+        <div class="session-info" id="sessionInfo">
+            Session: Loading...
+        </div>
+    </div>
+
+    <script type="module">
+        // Import Gemini AI library
+        import { GoogleGenerativeAI } from 'https://esm.run/@google/generative-ai';
+
+        class VoiceChatApp {
+            constructor() {
+                this.sessionToken = null;
+                this.geminiClient = null;
+                this.liveSession = null;
+                this.isRecording = false;
+                this.isConnected = false;
+                this.mediaRecorder = null;
+                this.audioContext = null;
+                this.analyser = null;
+                this.dataArray = null;
+                this.animationId = null;
+                
+                this.initializeUI();
+                this.initializeSession();
+            }
+
+            initializeUI() {
+                this.statusEl = document.getElementById('status');
+                this.micButton = document.getElementById('micButton');
+                this.connectBtn = document.getElementById('connectBtn');
+                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.conversationLog = document.getElementById('conversationLog');
+                this.sessionInfo = document.getElementById('sessionInfo');
+                this.waveform = document.getElementById('waveform');
+
+                // Event listeners
+                this.micButton.addEventListener('click', () => this.toggleRecording());
+                this.connectBtn.addEventListener('click', () => this.connectToGemini());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+
+                // Generate wave bars
+                this.generateWaveBars();
+            }
+
+            generateWaveBars() {
+                this.waveform.innerHTML = '';
+                for (let i = 0; i < 50; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'wave-bar';
+                    bar.style.height = '10px';
+                    this.waveform.appendChild(bar);
+                }
+            }
+
+            async initializeSession() {
+                try {
+                    // Get session token from URL
+                    const urlParams = new URLSearchParams(window.location.search);
+                    this.sessionToken = urlParams.get('session');
+                    
+                    if (!this.sessionToken) {
+                        throw new Error('No session token provided');
+                    }
+
+                    this.updateStatus('Getting session config...');
+                    
+                    // Get session configuration from n8n
+                    const response = await fetch(`https://n8n.lomeai.com/webhook/voice-session?session=${this.sessionToken}&action=initialize`);
+                    const data = await response.json();
+                    
+                    if (!data.success) {
+                        throw new Error(data.error || 'Failed to initialize session');
+                    }
+
+                    this.sessionConfig = data.config;
+                    this.sessionInfo.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
+                    
+                    // Initialize Gemini client
+                    this.geminiClient = new GoogleGenerativeAI(this.sessionConfig.apiKey);
+                    
+                    this.updateStatus('Ready to connect');
+                    this.connectBtn.disabled = false;
+                    
+                } catch (error) {
+                    console.error('Session initialization failed:', error);
+                    this.updateStatus('Failed to initialize session: ' + error.message, 'error');
+                }
+            }
+
+            async connectToGemini() {
+                try {
+                    this.updateStatus('Connecting to Gemini...', 'connecting');
+                    this.connectBtn.disabled = true;
+
+                    // Create live session
+                    this.liveSession = await this.geminiClient.live.connect({
+                        model: this.sessionConfig.model,
+                        config: this.sessionConfig.config,
+                        callbacks: {
+                            onopen: () => {
+                                console.log('Gemini Live API connected');
+                                this.isConnected = true;
+                                this.updateStatus('Connected! Click microphone to talk', 'connected');
+                                this.micButton.disabled = false;
+                                this.micButton.classList.add('connected');
+                                this.disconnectBtn.disabled = false;
+                                this.connectBtn.disabled = true;
+                                this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+                            },
+                            onmessage: (message) => {
+                                console.log('Received message:', message);
+                                this.handleGeminiMessage(message);
+                            },
+                            onerror: (error) => {
+                                console.error('Gemini error:', error);
+                                this.updateStatus('Connection error: ' + error.message, 'error');
+                                this.handleDisconnection();
+                            },
+                            onclose: (event) => {
+                                console.log('Connection closed:', event.reason);
+                                this.updateStatus('Connection closed', 'error');
+                                this.handleDisconnection();
+                            }
+                        }
+                    });
+
+                } catch (error) {
+                    console.error('Failed to connect to Gemini:', error);
+                    this.updateStatus('Connection failed: ' + error.message, 'error');
+                    this.connectBtn.disabled = false;
+                }
+            }
+
+            handleGeminiMessage(message) {
+                if (message.text) {
+                    this.addMessage('🤖 ' + message.text, 'ai');
+                }
+                
+                if (message.data) {
+                    // Handle audio response
+                    this.playAudioResponse(message.data);
+                }
+            }
+
+            async playAudioResponse(audioData) {
+                try {
+                    // Convert base64 audio to playable format
+                    const audioBuffer = this.base64ToArrayBuffer(audioData);
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const decodedAudio = await audioContext.decodeAudioData(audioBuffer);
+                    
+                    const source = audioContext.createBufferSource();
+                    source.buffer = decodedAudio;
+                    source.connect(audioContext.destination);
+                    source.start();
+                    
+                } catch (error) {
+                    console.error('Error playing audio:', error);
+                }
+            }
+
+            base64ToArrayBuffer(base64) {
+                const binaryString = window.atob(base64);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                return bytes.buffer;
+            }
+
+            async toggleRecording() {
+                if (!this.isConnected) {
+                    this.updateStatus('Please connect first', 'error');
+                    return;
+                }
+
+                if (this.isRecording) {
+                    this.stopRecording();
+                } else {
+                    await this.startRecording();
+                }
+            }
+
+            async startRecording() {
+                try {
+                    // Request microphone access
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            channelCount: 1,
+                            sampleRate: 16000
+                        } 
+                    });
+
+                    // Set up audio context for visualization
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    const source = this.audioContext.createMediaStreamSource(stream);
+                    source.connect(this.analyser);
+
+                    this.analyser.fftSize = 256;
+                    const bufferLength = this.analyser.frequencyBinCount;
+                    this.dataArray = new Uint8Array(bufferLength);
+
+                    // Set up media recorder
+                    this.mediaRecorder = new MediaRecorder(stream);
+                    this.audioChunks = [];
+
+                    this.mediaRecorder.ondataavailable = (event) => {
+                        this.audioChunks.push(event.data);
+                    };
+
+                    this.mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
+                        this.sendAudioToGemini(audioBlob);
+                        this.audioChunks = [];
+                    };
+
+                    this.mediaRecorder.start();
+                    this.isRecording = true;
+                    
+                    this.micButton.classList.add('recording');
+                    this.micButton.innerHTML = '⏹️';
+                    this.updateStatus('Recording... Click to stop', 'recording');
+                    
+                    this.startWaveAnimation();
+                    this.addMessage('🎤 Recording started...', 'user');
+
+                } catch (error) {
+                    console.error('Failed to start recording:', error);
+                    this.updateStatus('Microphone access denied', 'error');
+                }
+            }
+
+            stopRecording() {
+                if (this.mediaRecorder && this.isRecording) {
+                    this.mediaRecorder.stop();
+                    this.isRecording = false;
+                    
+                    this.micButton.classList.remove('recording');
+                    this.micButton.innerHTML = '🎤';
+                    this.updateStatus('Processing audio...', 'connecting');
+                    
+                    this.stopWaveAnimation();
+                    
+                    // Stop all tracks
+                    if (this.mediaRecorder.stream) {
+                        this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                    }
+                }
+            }
+
+            async sendAudioToGemini(audioBlob) {
+                try {
+                    // Convert audio to the format expected by Gemini (16-bit PCM)
+                    const audioBuffer = await audioBlob.arrayBuffer();
+                    const base64Audio = this.arrayBufferToBase64(audioBuffer);
+                    
+                    // Send audio to Gemini Live API
+                    await this.liveSession.sendRealtimeInput({
+                        audio: {
+                            data: base64Audio,
+                            mimeType: "audio/pcm;rate=16000"
+                        }
+                    });
+                    
+                    this.updateStatus('Connected! Click microphone to talk', 'connected');
+                    this.addMessage('🎤 Audio sent to Gemini', 'user');
+                    
+                } catch (error) {
+                    console.error('Failed to send audio:', error);
+                    this.updateStatus('Failed to send audio: ' + error.message, 'error');
+                }
+            }
+
+            arrayBufferToBase64(buffer) {
+                const bytes = new Uint8Array(buffer);
+                let binary = '';
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return window.btoa(binary);
+            }
+
+            startWaveAnimation() {
+                const animate = () => {
+                    if (!this.isRecording) return;
+                    
+                    this.analyser.getByteFrequencyData(this.dataArray);
+                    
+                    const bars = this.waveform.querySelectorAll('.wave-bar');
+                    bars.forEach((bar, index) => {
+                        const value = this.dataArray[index] || 0;
+                        const height = Math.max(5, (value / 255) * 50);
+                        bar.style.height = height + 'px';
+                    });
+                    
+                    this.animationId = requestAnimationFrame(animate);
+                };
+                animate();
+            }
+
+            stopWaveAnimation() {
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+                
+                // Reset wave bars
+                const bars = this.waveform.querySelectorAll('.wave-bar');
+                bars.forEach(bar => {
+                    bar.style.height = '10px';
+                });
+            }
+
+            disconnect() {
+                if (this.liveSession) {
+                    this.liveSession.close();
+                }
+                this.handleDisconnection();
+            }
+
+            handleDisconnection() {
+                this.isConnected = false;
+                this.isRecording = false;
+                
+                this.micButton.disabled = true;
+                this.micButton.classList.remove('connected', 'recording');
+                this.micButton.innerHTML = '🎤';
+                
+                this.connectBtn.disabled = false;
+                this.disconnectBtn.disabled = true;
+                
+                this.stopWaveAnimation();
+                this.updateStatus('Disconnected. Click Connect to start again');
+                
+                if (this.mediaRecorder && this.mediaRecorder.stream) {
+                    this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                }
+            }
+
+            updateStatus(message, type = '') {
+                this.statusEl.textContent = message;
+                this.statusEl.className = 'status ' + type;
+            }
+
+            addMessage(text, sender) {
+                const messageEl = document.createElement('div');
+                messageEl.className = `message ${sender}`;
+                messageEl.textContent = text;
+                
+                this.conversationLog.appendChild(messageEl);
+                this.conversationLog.scrollTop = this.conversationLog.scrollHeight;
+            }
+        }
+
+        // Initialize the app when the page loads
+        window.addEventListener('load', () => {
+            new VoiceChatApp();
+        });
+
+        // Telegram WebApp specific code
+        if (window.Telegram?.WebApp) {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+        }
+    </script>
+</body>
+</html>
