@@ -318,25 +318,27 @@
                     const response = await fetch(`https://n8n.lomeai.com/webhook/voice-session?session=${this.sessionToken}&action=initialize`);
                     const rawData = await response.json();
                     
-                    // Handle both array and direct response formats
+                    // Handle the actual response format from n8n
                     let data;
-                    if (Array.isArray(rawData)) {
-                        // Handle array format from n8n
-                        const responseBody = rawData[0].body;
-                        data = typeof responseBody === 'string' ? JSON.parse(responseBody) : responseBody;
+                    if (Array.isArray(rawData) && rawData.length > 0) {
+                        // n8n returns array format - get first item
+                        data = rawData[0];
                     } else {
-                        // Handle direct JSON format
+                        // Direct JSON format
                         data = rawData;
                     }
                     
-                    if (!data.success) {
-                        throw new Error(data.error || 'Failed to initialize session');
+                    console.log('Parsed data:', data);
+                    
+                    if (!data || !data.success) {
+                        throw new Error(data?.error || 'Failed to initialize session');
                     }
 
                     this.sessionConfig = data.config;
                     this.sessionInfo.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
                     
                     // Initialize Gemini client
+                    console.log('API Key:', this.sessionConfig.apiKey);
                     this.geminiClient = new GoogleGenerativeAI(this.sessionConfig.apiKey);
                     
                     this.updateStatus('Ready to connect');
