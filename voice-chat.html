@@ -278,7 +278,7 @@
 
                 // Event listeners
                 this.micButton.addEventListener('click', () => this.toggleRecording());
-                this.connectBtn.addEventListener('click', () => this.connectToGemini());
+                this.connectBtn.addEventListener('click', () => this.connectToWebSocket());
                 this.disconnectBtn.addEventListener('click', () => this.disconnect());
 
                 // Generate wave bars
@@ -346,9 +346,6 @@
                     this.addDebugInfo(`Model: ${this.sessionConfig.model}`);
                     this.addDebugInfo(`API Key: ${this.sessionConfig.apiKey ? 'Present' : 'Missing'}`);
                     
-                    // Load Gemini SDK dynamically
-                    await this.loadGeminiSDK();
-                    
                     this.updateStatus('Ready to connect');
                     this.connectBtn.disabled = false;
                     
@@ -359,165 +356,102 @@
                 }
             }
 
-            async loadGeminiSDK() {
+            async connectToWebSocket() {
                 try {
-                    this.addDebugInfo('Loading Gemini SDK...');
+                    this.addDebugInfo('Connecting to WebSocket proxy...');
                     
-                    // The @google/genai package may not be available via CDN
-                    // Let's try multiple approaches to load the SDK
+                    // Get the WebSocket URL from the session config
+                    const wsUrl = this.sessionConfig.websocketProxyUrl;
+                    if (!wsUrl) {
+                        throw new Error('No WebSocket proxy URL provided');
+                    }
                     
-                    let GoogleGenAI, Modality;
+                    // Create WebSocket connection with session token
+                    this.ws = new WebSocket(`${wsUrl}&session=${this.sessionToken}`);
                     
-                    try {
-                        // Try the official package first
-                        const module = await import('https://esm.run/@google/genai');
-                        GoogleGenAI = module.GoogleGenAI;
-                        Modality = module.Modality;
-                        this.addDebugInfo('Loaded from @google/genai');
-                    } catch (e1) {
-                        this.addDebugInfo('Failed to load @google/genai: ' + e1.message);
-                        
+                    // Set up WebSocket handlers
+                    this.ws.onopen = () => {
+                        this.addDebugInfo('WebSocket connection opened');
+                        this.isConnected = true;
+                        this.updateStatus('Connected! Click microphone to talk', 'connected');
+                        this.micButton.disabled = false;
+                        this.micButton.classList.add('connected');
+                        this.disconnectBtn.disabled = false;
+                        this.connectBtn.disabled = true;
+                        this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+                    };
+                    
+                    this.ws.onmessage = (event) => {
                         try {
-                            // Try alternative CDN
-                            const module = await import('https://cdn.skypack.dev/@google/genai');
-                            GoogleGenAI = module.GoogleGenAI;
-                            Modality = module.Modality;
-                            this.addDebugInfo('Loaded from skypack');
-                        } catch (e2) {
-                            this.addDebugInfo('Failed to load from skypack: ' + e2.message);
-                            
-                            try {
-                                // Try unpkg
-                                const module = await import('https://unpkg.com/@google/genai/dist/index.mjs');
-                                GoogleGenAI = module.GoogleGenAI;
-                                Modality = module.Modality;
-                                this.addDebugInfo('Loaded from unpkg');
-                            } catch (e3) {
-                                this.addDebugInfo('Failed to load from unpkg: ' + e3.message);
-                                
-                                // Last resort: explain the issue to user
-                                throw new Error('Cannot load @google/genai SDK from CDN. This package may need to be installed locally or may not be available for browser use yet. The Live API might require server-side implementation.');
-                            }
+                            const message = JSON.parse(event.data);
+                            this.handleWebSocketMessage(message);
+                        } catch (error) {
+                            this.addDebugInfo(`Failed to parse message: ${error.message}`);
                         }
-                    }
+                    };
                     
-                    if (!GoogleGenAI) {
-                        throw new Error('GoogleGenAI class not found in any package');
-                    }
+                    this.ws.onerror = (error) => {
+                        this.addDebugInfo(`WebSocket error: ${error.message}`);
+                        this.updateStatus('Connection error', 'error');
+                        this.handleDisconnection();
+                    };
                     
-                    this.addDebugInfo('SDK loaded successfully');
-                    
-                    // Store the classes globally for use
-                    window.GoogleGenAI = GoogleGenAI;
-                    window.Modality = Modality;
-                    
-                    // Initialize Gemini client with API key
-                    this.geminiClient = new GoogleGenAI({ apiKey: this.sessionConfig.apiKey });
-                    
-                    this.addDebugInfo('Gemini client initialized');
-                    this.addDebugInfo(`Live API available: ${this.geminiClient.live ? 'Yes' : 'No'}`);
-                    
-                    if (!this.geminiClient.live) {
-                        throw new Error('Live API not available in loaded SDK');
-                    }
+                    this.ws.onclose = (event) => {
+                        this.addDebugInfo(`WebSocket closed: ${event.reason}`);
+                        this.updateStatus('Connection closed', 'error');
+                        this.handleDisconnection();
+                    };
                     
                 } catch (error) {
-                    this.addDebugInfo(`SDK load error: ${error.message}`);
-                    console.error('Failed to load Gemini SDK:', error);
-                    
-                    // Show helpful error message to user
-                    if (error.message.includes('Cannot load @google/genai SDK')) {
-                        this.addMessage('⚠️ The Gemini Live API SDK is not available for direct browser use. This might require a server-side proxy implementation.', 'ai');
-                    }
-                    
-                    throw error;
+                    this.addDebugInfo(`Connection error: ${error.message}`);
+                    console.error('Failed to connect:', error);
+                    this.updateStatus('Connection failed: ' + error.message, 'error');
+                    this.connectBtn.disabled = false;
                 }
             }
 
-            async connectToGemini() {
+            handleWebSocketMessage(message) {
+                switch (message.type) {
+                    case 'audio_response':
+                        this.playAudioResponse(message.audioData);
+                        break;
+                        
+                    case 'text_response':
+                        this.addMessage('🤖 ' + message.text, 'ai');
+                        break;
+                        
+                    case 'error':
+                        this.addDebugInfo(`Server error: ${message.message}`);
+                        this.updateStatus(message.message, 'error');
+                        break;
+                        
+                    case 'turn_complete':
+                        this.addDebugInfo('Turn completed');
+                        break;
+                        
+                    default:
+                        this.addDebugInfo(`Unknown message type: ${message.type}`);
+                }
+            }
+
+            async sendAudioToServer(audioData) {
+                if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                    this.addDebugInfo('WebSocket not connected');
+                    return;
+                }
+
                 try {
-                    this.addDebugInfo('Starting Gemini connection...');
-                    this.updateStatus('Connecting to Gemini...', 'connecting');
-                    this.connectBtn.disabled = true;
-
-                    // Use the native audio model from our config
-                    const model = this.sessionConfig.model; // Should be 'gemini-2.5-flash-preview-native-audio-dialog'
+                    this.ws.send(JSON.stringify({
+                        type: 'audio_input',
+                        audioData: audioData,
+                        mimeType: 'audio/pcm;rate=16000'
+                    }));
                     
-                    // Configure for native audio output with affective dialog
-                    const config = {
-                        responseModalities: [window.Modality ? window.Modality.AUDIO : 'AUDIO'], // Native audio output
-                        enable_affective_dialog: true,  // Emotion-aware responses
-                        proactivity: {
-                            proactive_audio: true       // Smart response decisions
-                        },
-                        speech_config: {
-                            voice_config: {
-                                prebuilt_voice_config: {
-                                    voice_name: 'Aoede'  // Use Aoede voice
-                                }
-                            }
-                        },
-                        realtime_input_config: {
-                            automatic_activity_detection: {
-                                disabled: false,
-                                start_of_speech_sensitivity: 'START_SENSITIVITY_MEDIUM',
-                                end_of_speech_sensitivity: 'END_SENSITIVITY_MEDIUM'
-                            }
-                        },
-                        system_instruction: {
-                            parts: [{
-                                text: "You are a helpful AI assistant having a natural voice conversation with a user through Telegram. Be conversational, friendly, and respond naturally with appropriate emotion and tone. Keep responses concise but engaging."
-                            }]
-                        }
-                    };
-
-                    this.addDebugInfo(`Connecting with model: ${model}`);
-                    this.addDebugInfo(`Config: ${JSON.stringify(config, null, 2).substring(0, 300)}...`);
-
-                    // Create live session using the native audio model
-                    this.liveSession = await this.geminiClient.live.connect({
-                        model: model,
-                        config: config,
-                        callbacks: {
-                            onopen: () => {
-                                this.addDebugInfo('WebSocket connection opened');
-                                console.log('Gemini Live API connected');
-                                this.isConnected = true;
-                                this.updateStatus('Connected! Click microphone to talk', 'connected');
-                                this.micButton.disabled = false;
-                                this.micButton.classList.add('connected');
-                                this.disconnectBtn.disabled = false;
-                                this.connectBtn.disabled = true;
-                                this.addMessage('🤖 Connected! I can hear you now with native audio and affective dialog. Click the microphone to start talking!', 'ai');
-                            },
-                            onmessage: (message) => {
-                                this.addDebugInfo(`Received message type: ${message.type || 'unknown'}`);
-                                console.log('Received message:', message);
-                                this.responseQueue.push(message);
-                                this.handleGeminiMessage(message);
-                            },
-                            onerror: (error) => {
-                                this.addDebugInfo(`Connection error: ${error.message}`);
-                                console.error('Gemini error:', error);
-                                this.updateStatus('Connection error: ' + error.message, 'error');
-                                this.handleDisconnection();
-                            },
-                            onclose: (event) => {
-                                this.addDebugInfo(`Connection closed: ${event.reason}`);
-                                console.log('Connection closed:', event.reason);
-                                this.updateStatus('Connection closed', 'error');
-                                this.handleDisconnection();
-                            }
-                        }
-                    });
-
-                    this.addDebugInfo('Live session created successfully');
-
+                    this.addDebugInfo(`Audio sent: ${audioData.length} bytes`);
+                    
                 } catch (error) {
-                    this.addDebugInfo(`Connection failed: ${error.message}`);
-                    console.error('Failed to connect to Gemini:', error);
-                    this.updateStatus('Connection failed: ' + error.message, 'error');
-                    this.connectBtn.disabled = false;
+                    this.addDebugInfo(`Failed to send audio: ${error.message}`);
+                    console.error('Error sending audio:', error);
                 }
             }
 
@@ -658,8 +592,8 @@
                     this.mediaRecorder.ondataavailable = async (event) => {
                         if (event.data.size > 0) {
                             this.audioChunks.push(event.data);
-                            // Send audio chunk to Gemini immediately
-                            await this.sendAudioChunkToGemini(event.data);
+                            // Send audio chunk to WebSocket server
+                            await this.sendAudioChunkToWebSocket(event.data);
                         }
                     };
                     
@@ -760,8 +694,8 @@
 
             disconnect() {
                 this.addDebugInfo('Disconnecting...');
-                if (this.liveSession) {
-                    this.liveSession.close();
+                if (this.ws) {
+                    this.ws.close();
                 }
                 this.handleDisconnection();
             }
