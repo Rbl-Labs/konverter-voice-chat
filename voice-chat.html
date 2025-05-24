@@ -254,8 +254,8 @@
     </div>
 
     <script type="module">
-        // Import Gemini AI library
-        import { GoogleGenerativeAI } from 'https://esm.run/@google/generative-ai';
+        // Import Gemini AI library - use the correct package for Live API
+        import { GoogleGenAI } from 'https://esm.run/@google/genai';
 
         class VoiceChatApp {
             constructor() {
@@ -337,9 +337,11 @@
                     this.sessionConfig = data.config;
                     this.sessionInfo.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
                     
-                    // Initialize Gemini client
+                    // Initialize Gemini client with Live API support
                     console.log('API Key:', this.sessionConfig.apiKey);
-                    this.geminiClient = new GoogleGenerativeAI(this.sessionConfig.apiKey);
+                    this.geminiClient = new GoogleGenAI({ apiKey: this.sessionConfig.apiKey });
+                    console.log('Gemini client created:', this.geminiClient);
+                    console.log('Live API available:', !!this.geminiClient.live);
                     
                     this.updateStatus('Ready to connect');
                     this.connectBtn.disabled = false;
@@ -629,3 +631,4 @@
     </script>
 </body>
 </html>
+
