@@ -641,6 +641,7 @@
                 this.stream = null;
                 this.animationId = null;
                 this.sessionConfig = null;
+                this.sessionInitialized = false; // Track if session is initialized
                 
                 this.initializeElements();
                 this.initializeUI();
@@ -774,11 +775,9 @@
                     
                     this.ws.onopen = () => {
                         console.log('WebSocket connected');
+                        this.updateStatus('WebSocket connected, waiting for session initialization...', '');
                         
-                        // Initialize Gemini connection
-                        this.ws.send(JSON.stringify({
-                            type: 'connect_gemini'
-                        }));
+                        // Don't send connect_gemini here - wait for session_initialized message
                     };
                     
                     this.ws.onmessage = (event) => {
@@ -807,7 +806,13 @@
                 switch (message.type) {
                     case 'session_initialized':
                         console.log('Session initialized successfully');
-                        this.updateStatus('Session ready - Click Connect to start', '');
+                        this.sessionInitialized = true;
+                        this.updateStatus('Session ready - Connecting to Gemini...', '');
+                        
+                        // Now it's safe to connect to Gemini
+                        this.ws.send(JSON.stringify({
+                            type: 'connect_gemini'
+                        }));
                         break;
                         
                     case 'session_initialization_failed':
