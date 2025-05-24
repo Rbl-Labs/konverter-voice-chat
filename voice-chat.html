@@ -598,6 +598,7 @@
                         break;
                         
                     case 'gemini_connected':
+                        this.addDebugInfo('Received gemini_connected message');
                         this.isConnected = true;
                         this.updateStatus('Connected! Click microphone to talk', 'connected');
                         this.micButton.disabled = false;
@@ -605,6 +606,17 @@
                         this.disconnectBtn.disabled = false;
                         this.connectBtn.disabled = true;
                         this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+                        break;
+                        
+                    case 'gemini_disconnected':
+                        this.addDebugInfo('Received gemini_disconnected message: ' + message.reason);
+                        this.isConnected = false;
+                        this.updateStatus('Disconnected from Gemini: ' + message.reason, 'error');
+                        this.micButton.disabled = true;
+                        this.micButton.classList.remove('connected');
+                        this.disconnectBtn.disabled = true;
+                        this.connectBtn.disabled = false;
+                        this.addMessage('🔌 Disconnected from Gemini: ' + message.reason, 'ai');
                         break;
                         
                     case 'audio_response':
