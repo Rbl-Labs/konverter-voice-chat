@@ -550,20 +550,9 @@
                     // Set up WebSocket handlers
                     this.ws.onopen = () => {
                         this.addDebugInfo('WebSocket connection opened');
+                        this.updateStatus('WebSocket connected, waiting for session initialization...', '');
                         
-                        // Send connect_gemini message to initialize Gemini connection
-                        this.ws.send(JSON.stringify({
-                            type: 'connect_gemini'
-                        }));
-                        this.addDebugInfo('Sent connect_gemini message');
-                        
-                        this.isConnected = true;
-                        this.updateStatus('Connected! Click microphone to talk', 'connected');
-                        this.micButton.disabled = false;
-                        this.micButton.classList.add('connected');
-                        this.disconnectBtn.disabled = false;
-                        this.connectBtn.disabled = true;
-                        this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+                        // Don't send connect_gemini here - wait for session_initialized message
                     };
                     
                     this.ws.onmessage = (event) => {
@@ -597,6 +586,27 @@
 
             handleWebSocketMessage(message) {
                 switch (message.type) {
+                    case 'session_initialized':
+                        this.addDebugInfo('Session initialized successfully');
+                        this.updateStatus('Session ready - Connecting to Gemini...', '');
+                        
+                        // Now it's safe to connect to Gemini
+                        this.ws.send(JSON.stringify({
+                            type: 'connect_gemini'
+                        }));
+                        this.addDebugInfo('Sent connect_gemini message');
+                        break;
+                        
+                    case 'gemini_connected':
+                        this.isConnected = true;
+                        this.updateStatus('Connected! Click microphone to talk', 'connected');
+                        this.micButton.disabled = false;
+                        this.micButton.classList.add('connected');
+                        this.disconnectBtn.disabled = false;
+                        this.connectBtn.disabled = true;
+                        this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+                        break;
+                        
                     case 'audio_response':
                         this.playAudioResponse(message.audioData);
                         break;
@@ -1027,4 +1037,3 @@
     </script>
 </body>
 </html>
-
