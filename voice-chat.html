@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Konverter.ai Voice</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Live Voice</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,8 +35,7 @@
             background: var(--background-dark);
             color: var(--text-primary);
             min-height: 100vh;
-            max-height: 100vh;
-            overflow: hidden;
+            overflow-x: hidden;
             position: relative;
             font-feature-settings: 'cv11', 'ss01';
             -webkit-font-smoothing: antialiased;
@@ -103,35 +102,33 @@
         .app-container {
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            min-height: 100vh;
             position: relative;
             z-index: 1;
-            overflow: hidden;
         }
 
         /* Header */
         .header {
-            padding: 16px 16px 10px;
+            padding: clamp(20px, 5vh, 40px) 20px 20px;
             text-align: center;
             position: relative;
-            flex-shrink: 0;
         }
 
         .logo-container {
-            margin-bottom: 12px;
+            margin-bottom: 24px;
             position: relative;
         }
 
         .logo {
-            width: 50px;
-            height: 50px;
+            width: 72px;
+            height: 72px;
             margin: 0 auto;
             background: var(--primary-gradient);
-            border-radius: 16px;
+            border-radius: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            font-size: 36px;
             box-shadow: var(--shadow-glow);
             position: relative;
             overflow: hidden;
@@ -154,9 +151,9 @@
         }
 
         .title {
-            font-size: 24px;
+            font-size: clamp(28px, 6vw, 36px);
             font-weight: 800;
-            margin-bottom: 4px;
+            margin-bottom: 8px;
             background: var(--primary-gradient);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -166,10 +163,10 @@
         }
 
         .subtitle {
-            font-size: 14px;
+            font-size: 16px;
             color: var(--text-secondary);
             font-weight: 500;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
             letter-spacing: 0.01em;
         }
 
@@ -177,27 +174,27 @@
         .status-container {
             display: flex;
             justify-content: center;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
         }
 
         .status {
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 600;
-            padding: 6px 16px;
-            border-radius: 16px;
+            padding: 8px 20px;
+            border-radius: 20px;
             background: var(--surface-light);
             border: 1px solid var(--border-subtle);
             backdrop-filter: blur(10px);
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
         }
 
         .status::before {
             content: '';
-            width: 6px;
-            height: 6px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             background: var(--text-muted);
             transition: all 0.3s ease;
@@ -220,15 +217,15 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            padding: 0 16px;
-            overflow: hidden;
-            max-height: 30vh;
+            padding: 0 20px;
+            max-height: 60vh;
+            min-height: 200px;
         }
 
         .conversation-log {
             flex: 1;
             overflow-y: auto;
-            padding: 10px 0;
+            padding: 20px 0;
             scrollbar-width: none;
             -ms-overflow-style: none;
         }
@@ -238,7 +235,7 @@
         }
 
         .message {
-            margin-bottom: 12px;
+            margin-bottom: 20px;
             animation: messageSlide 0.5s ease-out;
             position: relative;
         }
@@ -256,13 +253,13 @@
 
         .message-bubble {
             max-width: 85%;
-            padding: 12px 16px;
-            border-radius: 18px;
+            padding: 16px 20px;
+            border-radius: 24px;
             position: relative;
             backdrop-filter: blur(10px);
             border: 1px solid var(--border-subtle);
-            line-height: 1.4;
-            font-size: 14px;
+            line-height: 1.5;
+            font-size: 15px;
             word-wrap: break-word;
         }
 
@@ -273,7 +270,7 @@
 
         .message.user .message-bubble {
             background: var(--primary-gradient);
-            border-bottom-right-radius: 6px;
+            border-bottom-right-radius: 8px;
             box-shadow: var(--shadow-glow);
         }
 
@@ -284,34 +281,33 @@
 
         .message.ai .message-bubble {
             background: var(--surface-light);
-            border-bottom-left-radius: 6px;
+            border-bottom-left-radius: 8px;
         }
 
         .message-time {
-            font-size: 10px;
+            font-size: 11px;
             color: var(--text-muted);
-            margin-top: 2px;
+            margin-top: 4px;
             text-align: center;
         }
 
         /* Voice Controls */
         .voice-controls {
-            padding: 16px;
+            padding: 30px 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 20px;
-            flex-shrink: 0;
+            gap: 30px;
         }
 
         /* Enhanced Waveform */
         .waveform-container {
             width: 100%;
-            max-width: 300px;
-            height: 80px;
+            max-width: 400px;
+            height: 120px;
             position: relative;
             background: var(--surface-light);
-            border-radius: 16px;
+            border-radius: 20px;
             border: 1px solid var(--border-subtle);
             backdrop-filter: blur(10px);
             display: flex;
@@ -324,17 +320,17 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 2px;
+            gap: 3px;
             width: 100%;
-            height: 60px;
+            height: 80px;
         }
 
         .wave-bar {
-            width: 3px;
+            width: 4px;
             background: var(--primary-gradient);
-            border-radius: 1.5px;
+            border-radius: 2px;
             transition: all 0.15s ease;
-            min-height: 3px;
+            min-height: 4px;
         }
 
         .wave-bar:nth-child(odd) {
@@ -350,13 +346,13 @@
         }
 
         .voice-button {
-            width: 80px;
-            height: 80px;
+            width: 100px;
+            height: 100px;
             border-radius: 50%;
             border: none;
             background: var(--primary-gradient);
             color: white;
-            font-size: 32px;
+            font-size: 42px;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             box-shadow: var(--shadow-glow), var(--shadow-strong);
@@ -429,8 +425,8 @@
         /* Ripple Effect */
         .ripple-container {
             position: absolute;
-            width: 110px;
-            height: 110px;
+            width: 140px;
+            height: 140px;
             border-radius: 50%;
             pointer-events: none;
         }
@@ -461,13 +457,13 @@
         /* Action Buttons */
         .action-buttons {
             display: flex;
-            gap: 12px;
+            gap: 16px;
             flex-wrap: wrap;
             justify-content: center;
         }
 
         .action-btn {
-            padding: 10px 20px;
+            padding: 12px 24px;
             border: none;
             border-radius: 12px;
             background: var(--surface-light);
@@ -475,10 +471,10 @@
             border: 1px solid var(--border-subtle);
             cursor: pointer;
             transition: all 0.3s ease;
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 600;
             backdrop-filter: blur(10px);
-            min-width: 90px;
+            min-width: 100px;
         }
 
         .action-btn:hover {
@@ -498,24 +494,47 @@
             border: none;
         }
 
-        /* Session Info - Hidden on mobile */
+        /* Session Info */
         .session-info {
-            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            font-size: 10px;
+            color: var(--text-muted);
+            background: var(--surface-light);
+            padding: 6px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-subtle);
+            backdrop-filter: blur(10px);
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
         }
 
-        /* Loading States */
-        .loading-spinner {
-            width: 16px;
-            height: 16px;
-            border: 2px solid transparent;
-            border-top: 2px solid currentColor;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+        /* Responsive Design */
+        @media (max-width: 480px) {
+            .voice-button {
+                width: 90px;
+                height: 90px;
+                font-size: 38px;
+            }
+            
+            .ripple-container {
+                width: 130px;
+                height: 130px;
+            }
+            
+            .waveform-container {
+                height: 100px;
+            }
+            
+            .action-buttons {
+                gap: 12px;
+            }
+            
+            .action-btn {
+                padding: 10px 20px;
+                font-size: 13px;
+                min-width: 80px;
+            }
         }
 
         /* Accessibility */
@@ -533,6 +552,21 @@
             outline: 2px solid #667eea;
             outline-offset: 2px;
         }
+
+        /* Loading States */
+        .loading-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -546,8 +580,8 @@
             <div class="logo-container">
                 <div class="logo">🎙️</div>
             </div>
-            <h1 class="title">Konverter.ai Voice</h1>
-            <p class="subtitle">Premium AI conversation experience</p>
+            <h1 class="title">Gemini Live Voice</h1>
+            <p class="subtitle">Natural AI conversation experience</p>
             <div class="status-container">
                 <div class="status" id="status">Initializing...</div>
             </div>
@@ -557,7 +591,7 @@
             <div class="conversation-log" id="conversationLog">
                 <div class="message ai" id="welcomeMessage">
                     <div class="message-bubble">
-                        👋 Welcome! Tap the microphone to start talking. I'll listen and respond automatically.
+                        👋 Welcome to Gemini Live Voice! I'm ready for natural conversation. Tap the microphone once to start - I'll listen and respond automatically.
                     </div>
                     <div class="message-time" id="welcomeTime"></div>
                 </div>
@@ -588,7 +622,6 @@
             </div>
         </section>
 
-        <!-- Debug panel hidden on mobile -->
         <div class="session-info" id="sessionInfo">
             Initializing session...
         </div>
@@ -653,25 +686,23 @@
 
             generateWaveformBars() {
                 this.waveform.innerHTML = '';
-                // Fewer bars for mobile
-                for (let i = 0; i < 40; i++) {
+                for (let i = 0; i < 50; i++) {
                     const bar = document.createElement('div');
                     bar.className = 'wave-bar';
-                    bar.style.height = '3px';
+                    bar.style.height = '4px';
                     this.waveform.appendChild(bar);
                 }
             }
 
             createFloatingParticles() {
                 const container = document.getElementById('floatingParticles');
-                // Fewer particles for mobile
-                const particleCount = 12;
+                const particleCount = window.innerWidth < 768 ? 15 : 25;
 
                 for (let i = 0; i < particleCount; i++) {
                     const particle = document.createElement('div');
                     particle.className = 'particle';
                     
-                    const size = Math.random() * 3 + 1;
+                    const size = Math.random() * 4 + 2;
                     const startX = Math.random() * window.innerWidth;
                     const delay = Math.random() * 20;
                     
@@ -775,17 +806,30 @@
             handleWebSocketMessage(message) {
                 switch (message.type) {
                     case 'session_initialized':
-                        console.log('Session initialized');
+                        console.log('Session initialized successfully');
+                        this.updateStatus('Session ready - Click Connect to start', '');
+                        break;
+                        
+                    case 'session_initialization_failed':
+                        console.error('Session initialization failed:', message.message);
+                        this.updateStatus(`Initialization failed: ${message.message}`, 'error');
+                        this.resetConnectButton();
                         break;
                         
                     case 'gemini_connected':
                         this.isConnected = true;
-                        this.updateStatus('Connected! Tap mic', 'connected');
+                        this.updateStatus('Connected! Tap microphone to start', 'connected');
                         this.voiceButton.disabled = false;
                         this.connectBtnText.textContent = 'Disconnect';
                         this.connectBtn.disabled = false;
                         this.endBtn.disabled = false;
-                        this.addMessage('🤖 Connected! Tap the microphone to start talking.', 'ai');
+                        this.addMessage('🤖 Connected! I\'m ready for natural conversation. Just tap the microphone once and start talking.', 'ai');
+                        break;
+                        
+                    case 'gemini_connection_failed':
+                        console.error('Gemini connection failed:', message.message);
+                        this.updateStatus(`Connection failed: ${message.message}`, 'error');
+                        this.resetConnectButton();
                         break;
                         
                     case 'audio_response':
@@ -825,7 +869,7 @@
 
             async startListening() {
                 try {
-                    this.updateStatus('Starting mic...', '');
+                    this.updateStatus('Starting microphone...', '');
                     
                     this.stream = await navigator.mediaDevices.getUserMedia({
                         audio: {
@@ -869,14 +913,14 @@
                     this.voiceButton.classList.add('listening');
                     this.voiceButton.innerHTML = '🔴';
                     this.rippleContainer.style.display = 'block';
-                    this.updateStatus('Listening...', 'recording');
+                    this.updateStatus('Listening - Speak naturally, I\'ll respond automatically', 'recording');
                     
                     this.startWaveformAnimation();
-                    this.addMessage('🎤 Listening...', 'user');
+                    this.addMessage('🎤 Conversation started - I\'m listening and will respond automatically', 'user');
                     
                 } catch (error) {
                     console.error('Failed to start listening:', error);
-                    this.updateStatus('Mic access denied', 'error');
+                    this.updateStatus('Microphone access denied', 'error');
                 }
             }
 
@@ -893,9 +937,10 @@
                 this.voiceButton.classList.remove('listening');
                 this.voiceButton.innerHTML = '🎤';
                 this.rippleContainer.style.display = 'none';
-                this.updateStatus('Connected', 'connected');
+                this.updateStatus('Connected - Tap microphone to talk again', 'connected');
                 
                 this.stopWaveformAnimation();
+                this.addMessage('🎤 Listening stopped', 'user');
             }
 
             async playAudioResponse(audioData) {
@@ -939,27 +984,19 @@
                 }
             }
 
-            animateWaveformForAudio(duration) {
-                let elapsed = 0;
-                const interval = 50;
-                
-                const animate = () => {
-                    if (elapsed >= duration) {
-                        this.stopWaveformAnimation();
-                        return;
+            setProcessingState(processing) {
+                this.isProcessing = processing;
+                if (processing) {
+                    this.voiceButton.classList.add('processing');
+                    this.updateStatus('Gemini is responding...', 'recording');
+                } else {
+                    this.voiceButton.classList.remove('processing');
+                    if (this.isListening) {
+                        this.updateStatus('Listening - Continue speaking', 'recording');
+                    } else {
+                        this.updateStatus('Connected - Tap microphone to talk', 'connected');
                     }
-                    
-                    const bars = this.waveform.querySelectorAll('.wave-bar');
-                    bars.forEach(bar => {
-                        const height = Math.max(3, Math.random() * 40 + 10);
-                        bar.style.height = height + 'px';
-                    });
-                    
-                    elapsed += interval;
-                    setTimeout(animate, interval);
-                };
-                
-                animate();
+                }
             }
 
             startWaveformAnimation() {
@@ -973,7 +1010,7 @@
                     const bars = this.waveform.querySelectorAll('.wave-bar');
                     bars.forEach((bar, index) => {
                         const value = dataArray[index] || 0;
-                        const height = Math.max(3, (value / 255) * 60);
+                        const height = Math.max(4, (value / 255) * 80);
                         bar.style.height = height + 'px';
                     });
                     
@@ -991,8 +1028,31 @@
                 
                 const bars = this.waveform.querySelectorAll('.wave-bar');
                 bars.forEach(bar => {
-                    bar.style.height = '3px';
+                    bar.style.height = '4px';
                 });
+            }
+
+            animateWaveformForAudio(duration) {
+                let elapsed = 0;
+                const interval = 50;
+                
+                const animate = () => {
+                    if (elapsed >= duration) {
+                        this.stopWaveformAnimation();
+                        return;
+                    }
+                    
+                    const bars = this.waveform.querySelectorAll('.wave-bar');
+                    bars.forEach(bar => {
+                        const height = Math.max(4, Math.random() * 60 + 20);
+                        bar.style.height = height + 'px';
+                    });
+                    
+                    elapsed += interval;
+                    setTimeout(animate, interval);
+                };
+                
+                animate();
             }
 
             arrayBufferToBase64(buffer) {
@@ -1032,7 +1092,7 @@
             endConversation() {
                 this.stopListening();
                 this.disconnect();
-                this.addMessage('👋 Conversation ended. Thank you for using Konverter.ai Voice!', 'ai');
+                this.addMessage('👋 Conversation ended. Thank you for using Gemini Live Voice!', 'ai');
             }
 
             disconnect() {
@@ -1093,3 +1153,15 @@
             window.Telegram.WebApp.setHeaderColor('#0a0a0f');
             window.Telegram.WebApp.setBackgroundColor('#0a0a0f');
         }
+
+        // Service Worker for offline functionality (optional)
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(() => {
+                    // Silently fail if no service worker
+                });
+            });
+        }
+    </script>
+</body>
+</html>
