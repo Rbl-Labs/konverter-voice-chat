@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Konverter.ai Voice Chat Mini App</title>
+    <title>Gemini Native Audio Chat</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {
@@ -215,7 +215,7 @@
 <body>
     <div class="chat-container">
         <div class="logo">🎙️</div>
-        <h1 class="title">Konverter.ai Voice Chat</h1>
+        <h1 class="title">Gemini Native Audio</h1>
         <p class="subtitle">Real-time AI voice conversation</p>
         
         <div class="status" id="status">Initializing...</div>
@@ -363,10 +363,53 @@
                 try {
                     this.addDebugInfo('Loading Gemini SDK...');
                     
-                    // Import the Gemini SDK using the correct package
-                    const { GoogleGenAI } = await import('https://esm.run/@google/genai@0.21.0');
+                    // The @google/genai package may not be available via CDN
+                    // Let's try multiple approaches to load the SDK
+                    
+                    let GoogleGenAI, Modality;
+                    
+                    try {
+                        // Try the official package first
+                        const module = await import('https://esm.run/@google/genai');
+                        GoogleGenAI = module.GoogleGenAI;
+                        Modality = module.Modality;
+                        this.addDebugInfo('Loaded from @google/genai');
+                    } catch (e1) {
+                        this.addDebugInfo('Failed to load @google/genai: ' + e1.message);
+                        
+                        try {
+                            // Try alternative CDN
+                            const module = await import('https://cdn.skypack.dev/@google/genai');
+                            GoogleGenAI = module.GoogleGenAI;
+                            Modality = module.Modality;
+                            this.addDebugInfo('Loaded from skypack');
+                        } catch (e2) {
+                            this.addDebugInfo('Failed to load from skypack: ' + e2.message);
+                            
+                            try {
+                                // Try unpkg
+                                const module = await import('https://unpkg.com/@google/genai/dist/index.mjs');
+                                GoogleGenAI = module.GoogleGenAI;
+                                Modality = module.Modality;
+                                this.addDebugInfo('Loaded from unpkg');
+                            } catch (e3) {
+                                this.addDebugInfo('Failed to load from unpkg: ' + e3.message);
+                                
+                                // Last resort: explain the issue to user
+                                throw new Error('Cannot load @google/genai SDK from CDN. This package may need to be installed locally or may not be available for browser use yet. The Live API might require server-side implementation.');
+                            }
+                        }
+                    }
+                    
+                    if (!GoogleGenAI) {
+                        throw new Error('GoogleGenAI class not found in any package');
+                    }
                     
                     this.addDebugInfo('SDK loaded successfully');
+                    
+                    // Store the classes globally for use
+                    window.GoogleGenAI = GoogleGenAI;
+                    window.Modality = Modality;
                     
                     // Initialize Gemini client with API key
                     this.geminiClient = new GoogleGenAI({ apiKey: this.sessionConfig.apiKey });
@@ -374,10 +417,20 @@
                     this.addDebugInfo('Gemini client initialized');
                     this.addDebugInfo(`Live API available: ${this.geminiClient.live ? 'Yes' : 'No'}`);
                     
+                    if (!this.geminiClient.live) {
+                        throw new Error('Live API not available in loaded SDK');
+                    }
+                    
                 } catch (error) {
                     this.addDebugInfo(`SDK load error: ${error.message}`);
                     console.error('Failed to load Gemini SDK:', error);
-                    throw new Error('Failed to load Gemini SDK: ' + error.message);
+                    
+                    // Show helpful error message to user
+                    if (error.message.includes('Cannot load @google/genai SDK')) {
+                        this.addMessage('⚠️ The Gemini Live API SDK is not available for direct browser use. This might require a server-side proxy implementation.', 'ai');
+                    }
+                    
+                    throw error;
                 }
             }
 
@@ -392,7 +445,7 @@
                     
                     // Configure for native audio output with affective dialog
                     const config = {
-                        response_modalities: ['AUDIO'], // Native audio output
+                        responseModalities: [window.Modality ? window.Modality.AUDIO : 'AUDIO'], // Native audio output
                         enable_affective_dialog: true,  // Emotion-aware responses
                         proactivity: {
                             proactive_audio: true       // Smart response decisions
