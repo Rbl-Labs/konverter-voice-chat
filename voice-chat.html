@@ -721,9 +721,19 @@
 
                     // Ensure we have an AudioContext for playback and it's running
                     if (!this.playbackAudioContext) {
-                        this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        this.addDebugInfo('Created playback AudioContext.');
+                        try {
+                            this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+                            this.addDebugInfo(`Attempted to create playback AudioContext with 24000Hz. Actual rate: ${this.playbackAudioContext.sampleRate}Hz.`);
+                            if (this.playbackAudioContext.sampleRate !== 24000) {
+                                this.addDebugInfo(`Warning: Playback AudioContext running at ${this.playbackAudioContext.sampleRate}Hz, not desired 24000Hz. Playback speed issues may persist.`);
+                            }
+                        } catch (e) {
+                            this.addDebugInfo(`Failed to create AudioContext with 24000Hz (${e.message}), falling back to default rate.`);
+                            this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            this.addDebugInfo(`Fallback playback AudioContext created with default rate: ${this.playbackAudioContext.sampleRate}Hz.`);
+                        }
                     }
+                    
                     if (this.playbackAudioContext.state === 'suspended') {
                         this.addDebugInfo('Playback AudioContext is suspended, attempting to resume...');
                         await this.playbackAudioContext.resume();
@@ -764,11 +774,21 @@
                     
                     const source = this.playbackAudioContext.createBufferSource();
                     source.buffer = audioBuffer;
+                    
+                    // Adjust playback rate to compensate for any mismatch between buffer's sample rate and context's sample rate
+                    if (audioBuffer.sampleRate !== this.playbackAudioContext.sampleRate) {
+                        const rateAdjustment = audioBuffer.sampleRate / this.playbackAudioContext.sampleRate;
+                        source.playbackRate.value = rateAdjustment;
+                        this.addDebugInfo(`Adjusting playback rate. Buffer SR: ${audioBuffer.sampleRate}, Context SR: ${this.playbackAudioContext.sampleRate}, Rate: ${rateAdjustment.toFixed(3)}`);
+                    } else {
+                        this.addDebugInfo(`Playback rate matches. Buffer SR: ${audioBuffer.sampleRate}, Context SR: ${this.playbackAudioContext.sampleRate}`);
+                    }
+                    
                     source.connect(this.playbackAudioContext.destination);
                     source.start();
                     
                     this.addMessage('🔊 [Playing native audio response]', 'ai');
-                    this.addDebugInfo(`Audio playback started. Buffer duration: ${audioBuffer.duration.toFixed(3)}s, Sample rate: ${this.playbackAudioContext.sampleRate}Hz`);
+                    this.addDebugInfo(`Audio playback started. Buffer duration: ${audioBuffer.duration.toFixed(3)}s, Context SR: ${this.playbackAudioContext.sampleRate}Hz, Effective SR: ${audioBuffer.sampleRate / source.playbackRate.value}Hz`);
                     
                     source.onended = () => {
                         this.addDebugInfo('Audio playback finished.');
