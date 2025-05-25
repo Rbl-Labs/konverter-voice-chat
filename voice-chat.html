@@ -635,26 +635,35 @@
                     case 'turn_complete':
                         this.addDebugInfo('Turn completed');
                         break;
+                    
+                    case 'gemini_setup_complete':
+                        this.addDebugInfo('Received gemini_setup_complete message from backend.');
+                        // You can add any UI updates here if needed when Gemini setup is fully complete.
+                        break;
                         
                     default:
                         this.addDebugInfo(`Unknown message type: ${message.type}`);
                 }
             }
 
-            async sendAudioToServer(audioData) {
+            async sendAudioToServer(audioData, isEndOfSpeech = false) {
                 if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
                     this.addDebugInfo('WebSocket not connected');
                     return;
                 }
 
                 try {
-                    this.ws.send(JSON.stringify({
+                    const messagePayload = {
                         type: 'audio_input',
-                        audioData: audioData,
-                        mimeType: 'audio/pcm;rate=16000'
-                    }));
+                        audioData: audioData, // This is base64 encoded
+                        mimeType: 'audio/webm;codecs=opus' // Correct MIME type for MediaRecorder default
+                    };
+                    if (isEndOfSpeech) {
+                        messagePayload.isEndOfSpeech = true;
+                    }
+                    this.ws.send(JSON.stringify(messagePayload));
                     
-                    this.addDebugInfo(`Audio sent: ${audioData.length} bytes`);
+                    this.addDebugInfo(`Audio sent: ${audioData ? audioData.length : 0} bytes, isEndOfSpeech: ${isEndOfSpeech}`);
                     
                 } catch (error) {
                     this.addDebugInfo(`Failed to send audio: ${error.message}`);
@@ -798,36 +807,50 @@
                     
                     this.mediaRecorder.ondataavailable = async (event) => {
                         if (event.data.size > 0) {
-                            this.audioChunks.push(event.data);
-                            // Send audio chunk to WebSocket server
-                            const audioBuffer = await event.data.arrayBuffer();
-                            const base64Audio = this.arrayBufferToBase64(audioBuffer);
-                            await this.sendAudioToServer(base64Audio);
-                        }
-                    };
-                    
-                    // Start recording with smaller time slices for more responsive streaming
-                    this.mediaRecorder.start(500); // 500ms chunks for better responsiveness
-                    
-                    this.addDebugInfo('Continuous audio streaming started with automatic VAD');
-                    
-                } catch (error) {
-                    this.addDebugInfo(`Audio streaming error: ${error.message}`);
-                    console.error('Failed to start audio streaming:', error);
+                    this.audioChunks.push(event.data);
+                    // Send audio chunk to WebSocket server
+                    const audioBuffer = await event.data.arrayBuffer();
+                    const base64Audio = this.arrayBufferToBase64(audioBuffer);
+                    // Send intermediate chunks with isEndOfSpeech: false
+                    await this.sendAudioToServer(base64Audio, false);
                 }
-            }
+            };
+            
+            // Start recording with smaller time slices for more responsive streaming
+            this.mediaRecorder.start(500); // 500ms chunks for better responsiveness
+            
+            this.addDebugInfo('Continuous audio streaming started with automatic VAD');
+            
+        } catch (error) {
+            this.addDebugInfo(`Audio streaming error: ${error.message}`);
+            console.error('Failed to start audio streaming:', error);
+        }
+    }
 
-            stopRecording() {
-                if (this.isRecording) {
-                    this.addDebugInfo('Stopping conversation...');
-                    
-                    this.isRecording = false;
-                    
-                    if (this.mediaRecorder) {
-                        this.mediaRecorder.stop();
-                    }
-                    
-                    if (this.stream) {
+    stopRecording() {
+        if (this.isRecording) {
+            this.addDebugInfo('Stopping conversation...');
+            
+            this.isRecording = false;
+            
+            // Important: Ensure mediaRecorder.onstop is defined *before* calling stop()
+            // to catch any final data.
+            if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+                this.mediaRecorder.onstop = async () => {
+                    this.addDebugInfo('MediaRecorder stopped, sending final isEndOfSpeech signal.');
+                    // Send a final message with isEndOfSpeech: true.
+                    // No new audioData is strictly needed here if the last chunk was already sent by ondataavailable.
+                    // The backend's handleAudioInput can handle audioData being null/undefined if isEndOfSpeech is true.
+                    await this.sendAudioToServer(null, true); 
+                };
+                this.mediaRecorder.stop();
+            } else {
+                // If recorder was already stopped or not initialized, still send the signal.
+                this.addDebugInfo('MediaRecorder inactive or not found, sending isEndOfSpeech signal directly.');
+                this.sendAudioToServer(null, true);
+            }
+            
+            if (this.stream) {
                         this.stream.getTracks().forEach(track => track.stop());
                     }
                     
