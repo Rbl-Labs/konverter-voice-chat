@@ -433,12 +433,21 @@
                 this.isRecording = false;
                 this.isConnected = false;
                 this.mediaRecorder = null;
-                this.audioContext = null;
+                this.audioContext = null; // Used for mic visualization
                 this.analyser = null;
                 this.dataArray = null;
                 this.animationId = null;
                 this.responseQueue = [];
                 this.audioChunks = [];
+                this.playbackAudioContext = null; // Used for playing Gemini's audio
+
+                // VAD properties
+                this.vadSilenceThreshold = 0.01; // Normalized energy; adjust based on testing
+                this.vadRequiredSilenceDuration = 1500; // ms of silence before triggering EOS
+                this.vadEnergySmoothing = 0.1; // Smoothing factor for energy readings
+                this.currentEnergy = 0.0;
+                this.silenceStartTime = 0;
+                this.vadMonitoringInterval = null;
                 
                 this.initializeUI();
                 this.initializeSession();
@@ -640,6 +649,16 @@
                         this.addDebugInfo('Received gemini_setup_complete message from backend.');
                         // You can add any UI updates here if needed when Gemini setup is fully complete.
                         break;
+
+                    case 'input_transcription':
+                        this.addDebugInfo(`Input transcription: ${message.text}`);
+                        this.addMessage(`🎤 You (interim): ${message.text}`, 'user');
+                        break;
+
+                    case 'output_transcription':
+                        this.addDebugInfo(`Output transcription: ${message.text}`);
+                        this.addMessage(`🤖 AI (interim): ${message.text}`, 'ai');
+                        break;
                         
                     default:
                         this.addDebugInfo(`Unknown message type: ${message.type}`);
@@ -694,41 +713,75 @@
 
             async playAudioResponse(audioData) {
                 try {
-                    this.addDebugInfo('Playing audio response...');
+                    this.addDebugInfo(`Playing audio response. Data length (Base64): ${audioData ? audioData.length : 0}`);
+                    if (!audioData) {
+                        this.addDebugInfo('No audio data to play.');
+                        return;
+                    }
+
+                    // Ensure we have an AudioContext for playback and it's running
+                    if (!this.playbackAudioContext) {
+                        this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        this.addDebugInfo('Created playback AudioContext.');
+                    }
+                    if (this.playbackAudioContext.state === 'suspended') {
+                        this.addDebugInfo('Playback AudioContext is suspended, attempting to resume...');
+                        await this.playbackAudioContext.resume();
+                        this.addDebugInfo(`Playback AudioContext state after resume: ${this.playbackAudioContext.state}`);
+                    }
                     
-                    // Convert base64 audio to playable format
-                    // According to docs: Audio output always uses 24kHz, 16-bit PCM
                     const binaryString = window.atob(audioData);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
                         bytes[i] = binaryString.charCodeAt(i);
                     }
                     
-                    // Create audio context and decode
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    
-                    // For 24kHz PCM audio from Gemini
+                    // For 24kHz, 16-bit, mono PCM audio from Gemini
                     const sampleRate = 24000;
                     const channels = 1;
-                    const audioBuffer = audioContext.createBuffer(channels, bytes.length / 2, sampleRate);
-                    
-                    // Convert bytes to 16-bit PCM samples
+                    const numSamples = bytes.length / 2; // 2 bytes per sample for 16-bit
+
+                    if (numSamples === 0) {
+                        this.addDebugInfo('Decoded audio data is empty (0 samples).');
+                        return;
+                    }
+                    if (bytes.length % 2 !== 0) {
+                        this.addDebugInfo(`Warning: Decoded audio data has an odd number of bytes (${bytes.length}), which is unusual for 16-bit PCM.`);
+                        // Potentially truncate to the last full sample, though this indicates a problem upstream.
+                    }
+
+                    const audioBuffer = this.playbackAudioContext.createBuffer(channels, numSamples, sampleRate);
                     const channelData = audioBuffer.getChannelData(0);
-                    for (let i = 0; i < channelData.length; i++) {
-                        const sample = (bytes[i * 2 + 1] << 8) | bytes[i * 2];
-                        channelData[i] = sample < 32768 ? sample / 32768 : (sample - 65536) / 32768;
+                    
+                    // Use DataView to read 16-bit signed PCM samples (little-endian)
+                    // The underlying ArrayBuffer for `bytes` is `bytes.buffer`.
+                    const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
+                    for (let i = 0; i < numSamples; i++) {
+                        const pcmSample = dataView.getInt16(i * 2, true); // true for little-endian
+                        channelData[i] = pcmSample / 32768.0; // Normalize to [-1.0, 1.0]
                     }
                     
-                    const source = audioContext.createBufferSource();
+                    const source = this.playbackAudioContext.createBufferSource();
                     source.buffer = audioBuffer;
-                    source.connect(audioContext.destination);
+                    source.connect(this.playbackAudioContext.destination);
                     source.start();
                     
                     this.addMessage('🔊 [Playing native audio response]', 'ai');
-                    this.addDebugInfo('Audio playback started');
+                    this.addDebugInfo(`Audio playback started. Buffer duration: ${audioBuffer.duration.toFixed(3)}s, Sample rate: ${this.playbackAudioContext.sampleRate}Hz`);
+                    
+                    source.onended = () => {
+                        this.addDebugInfo('Audio playback finished.');
+                        // It's good practice to disconnect the source node after it has finished playing.
+                        try {
+                            source.disconnect();
+                        } catch (e) {
+                            this.addDebugInfo(`Error disconnecting source: ${e.message}`);
+                        }
+                    };
                     
                 } catch (error) {
-                    this.addDebugInfo(`Audio playback error: ${error.message}`);
+                    this.addDebugInfo(`Audio playback error: ${error.message}. Stack: ${error.stack}`);
                     console.error('Error playing audio:', error);
                     this.addMessage('🔊 [Received audio response - playback failed]', 'ai');
                 }
@@ -786,8 +839,10 @@
                     this.startWaveAnimation();
                     this.addMessage('🎤 Continuous conversation started - speak naturally and Gemini will respond automatically', 'user');
                     
-                    // Start streaming audio to Gemini in real-time with automatic VAD
+                    // Start streaming audio to Gemini in real-time
                     this.startContinuousAudioStreaming();
+                    // Start VAD monitoring
+                    this.startVADMonitoring();
 
                 } catch (error) {
                     this.addDebugInfo(`Recording start error: ${error.message}`);
@@ -829,41 +884,110 @@
 
     stopRecording() {
         if (this.isRecording) {
-            this.addDebugInfo('Stopping conversation...');
+            this.addDebugInfo('Stopping conversation (stopRecording called)...');
+            this.stopVADMonitoring(); // Stop VAD first
             
             this.isRecording = false;
             
-            // Important: Ensure mediaRecorder.onstop is defined *before* calling stop()
-            // to catch any final data.
             if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
                 this.mediaRecorder.onstop = async () => {
                     this.addDebugInfo('MediaRecorder stopped, sending final isEndOfSpeech signal.');
-                    // Send a final message with isEndOfSpeech: true.
-                    // No new audioData is strictly needed here if the last chunk was already sent by ondataavailable.
-                    // The backend's handleAudioInput can handle audioData being null/undefined if isEndOfSpeech is true.
                     await this.sendAudioToServer(null, true); 
                 };
-                this.mediaRecorder.stop();
+                try {
+                    this.mediaRecorder.stop(); // This will trigger onstop
+                } catch (e) {
+                    this.addDebugInfo(`Error stopping mediaRecorder: ${e.message}. Still attempting to send EOS.`);
+                    // If stop fails, still try to send EOS, though audio might be incomplete.
+                    this.sendAudioToServer(null, true);
+                }
             } else {
-                // If recorder was already stopped or not initialized, still send the signal.
                 this.addDebugInfo('MediaRecorder inactive or not found, sending isEndOfSpeech signal directly.');
-                this.sendAudioToServer(null, true);
+                this.sendAudioToServer(null, true); // Send EOS if recorder wasn't active
             }
             
             if (this.stream) {
-                        this.stream.getTracks().forEach(track => track.stop());
-                    }
-                    
-                    this.micButton.classList.remove('recording');
-                    this.micButton.innerHTML = '🎤';
-                    this.updateStatus('Connected! Click microphone to start conversation', 'connected');
-                    
-                    this.stopWaveAnimation();
-                    this.addMessage('🎤 Conversation ended', 'user');
-                }
+                this.stream.getTracks().forEach(track => track.stop());
+                this.stream = null; // Clear the stream
             }
+            
+            if (this.audioContext && this.audioContext.state !== 'closed') {
+                // No need to close the mic visualization audioContext here, 
+                // as it's tied to the stream which is now stopped.
+                // It will be recreated on next recording start.
+            }
+                    
+            this.micButton.classList.remove('recording');
+            this.micButton.innerHTML = '🎤';
+            this.updateStatus('Connected! Click microphone to start conversation', 'connected');
+            
+            this.stopWaveAnimation();
+            this.addMessage('🎤 Conversation ended.', 'user');
+        } else {
+            this.addDebugInfo('stopRecording called but not currently recording.');
+        }
+    }
 
-            arrayBufferToBase64(buffer) {
+    startVADMonitoring() {
+        this.stopVADMonitoring(); // Clear any existing interval
+        this.silenceStartTime = 0;
+        this.currentEnergy = 0.0;
+        
+        if (!this.analyser) {
+            this.addDebugInfo("VAD: Analyser not ready, cannot start monitoring.");
+            return;
+        }
+        this.addDebugInfo(`VAD: Starting monitoring. Threshold: ${this.vadSilenceThreshold}, Duration: ${this.vadRequiredSilenceDuration}ms`);
+        
+        this.vadMonitoringInterval = setInterval(() => this.checkVAD(), 100); // Check every 100ms
+    }
+
+    checkVAD() {
+        if (!this.isRecording || !this.analyser || !this.dataArray) {
+            // this.addDebugInfo("VAD: Not recording or analyser not ready.");
+            return;
+        }
+
+        this.analyser.getByteFrequencyData(this.dataArray);
+        let sum = 0;
+        for (let i = 0; i < this.dataArray.length; i++) {
+            sum += this.dataArray[i];
+        }
+        const average = this.dataArray.length > 0 ? sum / this.dataArray.length : 0;
+        
+        const normalizedEnergy = average / 255; // Normalize to 0-1 range
+        this.currentEnergy = (this.currentEnergy * (1 - this.vadEnergySmoothing)) + (normalizedEnergy * this.vadEnergySmoothing);
+
+        // this.addDebugInfo(`VAD Energy: ${this.currentEnergy.toFixed(3)}`); // Optional: for debugging energy levels
+
+        if (this.currentEnergy < this.vadSilenceThreshold) {
+            if (this.silenceStartTime === 0) {
+                this.silenceStartTime = Date.now();
+                // this.addDebugInfo('VAD: Silence period started.');
+            }
+            
+            if ((Date.now() - this.silenceStartTime) >= this.vadRequiredSilenceDuration) {
+                this.addDebugInfo(`VAD: End of speech detected. Silence duration: ${Date.now() - this.silenceStartTime}ms`);
+                this.stopVADMonitoring(); // Stop VAD before calling stopRecording
+                this.stopRecording(); // This will handle sending EOS
+            }
+        } else {
+            if (this.silenceStartTime !== 0) {
+                // this.addDebugInfo('VAD: Speech detected, resetting silence timer.');
+            }
+            this.silenceStartTime = 0; // Reset silence timer if energy is above threshold
+        }
+    }
+
+    stopVADMonitoring() {
+        if (this.vadMonitoringInterval) {
+            clearInterval(this.vadMonitoringInterval);
+            this.vadMonitoringInterval = null;
+            this.addDebugInfo("VAD: Monitoring stopped.");
+        }
+    }
+
+    arrayBufferToBase64(buffer) {
                 const bytes = new Uint8Array(buffer);
                 let binary = '';
                 for (let i = 0; i < bytes.byteLength; i++) {
