@@ -236,31 +236,32 @@ class GeminiNativeAudioChat {
     async processPendingAudio(forcePlay) {
         if (this.pendingAudioData.length === 0) return;
 
-        let combinedPcmData = [];
-        for (const base64Chunk of this.pendingAudioData) {
-            const binaryString = atob(base64Chunk);
-            for (let i = 0; i < binaryString.length; i++) {
-                combinedPcmData.push(binaryString.charCodeAt(i));
-            }
-        }
-        const pcmDataArray = new Uint8Array(combinedPcmData);
-        
-        const inputSampleRate = 24000; // Gemini output is 24kHz
-        const durationSeconds = pcmDataArray.length / (inputSampleRate * 2); // 2 bytes per sample for 16-bit
+        // Assuming MP3 chunks are self-contained enough or backend sends one MP3 per utterance part
+        // For simplicity now, we'll play each MP3 chunk as it meets the criteria,
+        // rather than trying to concatenate raw MP3 byte streams (which is complex).
+        // If Gemini sends audio in multiple 'audio_response' messages for a single logical utterance,
+        // this will play them sequentially.
 
-        if (forcePlay || durationSeconds >= this.minPlaybackDurationThreshold || this.pendingAudioData.length > 5) { // Play if enough data or forced
+        // Let's estimate duration based on typical MP3 bitrate if needed, though decodeAudioData is better
+        // For now, we'll rely on forcePlay or a simple chunk count.
+        const estimatedTotalDuration = this.pendingAudioData.reduce((acc, b64) => acc + (b64.length * 6 / 8) / (128000 / 8), 0); // Rough estimate for 128kbps MP3
+
+        if (forcePlay || estimatedTotalDuration >= this.minPlaybackDurationThreshold || this.pendingAudioData.length >= 1) { // Play if any MP3 chunk is ready or forced
+            const mp3Base64ToPlay = this.pendingAudioData.join(''); // Concatenate if backend ever sends partial base64 MP3s (unlikely for MP3)
             this.pendingAudioData = []; // Clear pending chunks
-            await this.playAudioData(pcmDataArray);
+            if (mp3Base64ToPlay) {
+                await this.playMp3Data(mp3Base64ToPlay);
+            }
         } else {
-            this.addDebugInfo(`Audio accumulated: ${durationSeconds.toFixed(2)}s. Waiting for more or turn_complete.`);
+            this.addDebugInfo(`MP3 audio accumulated: ${this.pendingAudioData.length} chunks, est. duration ${estimatedTotalDuration.toFixed(2)}s. Waiting for more or turn_complete.`);
         }
     }
 
-    async playAudioData(pcmDataArray) {
+    async playMp3Data(mp3Base64) {
         try {
-            this.addDebugInfo(`playAudioData called. PCM data length: ${pcmDataArray.length}`);
-            if (pcmDataArray.length === 0) {
-                this.addDebugInfo('No PCM data to play.');
+            this.addDebugInfo(`playMp3Data called. MP3 Base64 length: ${mp3Base64.length}`);
+            if (!mp3Base64) {
+                this.addDebugInfo('No MP3 data to play.');
                 return;
             }
 
@@ -282,33 +283,27 @@ class GeminiNativeAudioChat {
                 }
             }
             
-            const inputSampleRate = 24000;
-            const numChannels = 1;
-            const bitsPerSample = 16;
-            
-            const wavHeader = this.createWavHeader(pcmDataArray.length, inputSampleRate, numChannels, bitsPerSample);
-            const wavBytes = new Uint8Array(wavHeader.byteLength + pcmDataArray.byteLength);
-            wavBytes.set(new Uint8Array(wavHeader), 0);
-            wavBytes.set(pcmDataArray, wavHeader.byteLength);
+            const binaryString = window.atob(mp3Base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
 
-            this.addDebugInfo(`WAV data created. Total size: ${wavBytes.byteLength} bytes.`);
+            this.addDebugInfo(`MP3 data decoded from Base64. Total size: ${bytes.byteLength} bytes.`);
 
-            this.playbackAudioContext.decodeAudioData(wavBytes.buffer.slice(0), // Use slice(0) to pass a detached ArrayBuffer
+            // Use slice(0) to pass a detached ArrayBuffer, which is required by decodeAudioData in some browsers
+            this.playbackAudioContext.decodeAudioData(bytes.buffer.slice(0),
                 (decodedBuffer) => {
-                    this.addDebugInfo(`decodeAudioData successful. Decoded SR: ${decodedBuffer.sampleRate}Hz, Duration: ${decodedBuffer.duration.toFixed(3)}s`);
+                    this.addDebugInfo(`MP3 decodeAudioData successful. Decoded SR: ${decodedBuffer.sampleRate}Hz, Duration: ${decodedBuffer.duration.toFixed(3)}s`);
                     if (this.currentPlaybackSource) {
                         try { this.currentPlaybackSource.stop(); } catch(e){ this.addDebugInfo("Error stopping previous source: " + e.message); }
                     }
                     const source = this.playbackAudioContext.createBufferSource();
                     source.buffer = decodedBuffer;
                     
-                    if (decodedBuffer.sampleRate !== this.playbackAudioContext.sampleRate) {
-                        const rateAdjustment = decodedBuffer.sampleRate / this.playbackAudioContext.sampleRate;
-                        source.playbackRate.value = rateAdjustment;
-                        this.addDebugInfo(`Adjusting playback rate. Buffer SR: ${decodedBuffer.sampleRate}, Context SR: ${this.playbackAudioContext.sampleRate}, Rate: ${rateAdjustment.toFixed(3)}`);
-                    } else {
-                        this.addDebugInfo(`Playback rate matches. Buffer SR: ${decodedBuffer.sampleRate}, Context SR: ${this.playbackAudioContext.sampleRate}`);
-                    }
+                    // No playbackRate adjustment needed for MP3s, browser handles it.
+                    this.addDebugInfo(`Playing MP3 at native sample rate of buffer: ${decodedBuffer.sampleRate}Hz, Context SR: ${this.playbackAudioContext.sampleRate}Hz`);
                     
                     source.connect(this.playbackAudioContext.destination);
                     source.start();
@@ -316,50 +311,30 @@ class GeminiNativeAudioChat {
                     this.addMessage('🔊 [Playing audio response]', 'ai');
                     
                     source.onended = () => {
-                        this.addDebugInfo('Audio playback finished.');
+                        this.addDebugInfo('MP3 playback finished.');
                         if (this.currentPlaybackSource === source) {
                             this.currentPlaybackSource = null;
+                        }
+                         // If there's more in the queue (e.g. from rapid turn_complete), process it
+                        if (this.pendingAudioData.length > 0) {
+                           this.processPendingAudio(true); // Force play next if available
                         }
                     };
                 },
                 (error) => {
-                    this.addDebugInfo(`decodeAudioData error: ${error.message || error}`);
-                    console.error('Error decoding WAV audio data:', error);
+                    this.addDebugInfo(`MP3 decodeAudioData error: ${error.message || error}`);
+                    console.error('Error decoding MP3 audio data:', error);
                 }
             );
         } catch (error) {
-            this.addDebugInfo(`Audio playback error: ${error.message}. Stack: ${error.stack}`);
-            console.error('Error playing audio:', error);
+            this.addDebugInfo(`MP3 playback error: ${error.message}. Stack: ${error.stack}`);
+            console.error('Error playing MP3 audio:', error);
         }
     }
 
-    createWavHeader(dataLength, sampleRate, numChannels, bitsPerSample) {
-        const header = new ArrayBuffer(44);
-        const view = new DataView(header);
-        const blockAlign = numChannels * (bitsPerSample / 8);
-        const byteRate = sampleRate * blockAlign;
-
-        this.writeStringView(view, 0, 'RIFF');
-        view.setUint32(4, 36 + dataLength, true); 
-        this.writeStringView(view, 8, 'WAVE');
-        this.writeStringView(view, 12, 'fmt ');
-        view.setUint32(16, 16, true); 
-        view.setUint16(20, 1, true);  
-        view.setUint16(22, numChannels, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, byteRate, true);
-        view.setUint16(32, blockAlign, true);
-        view.setUint16(34, bitsPerSample, true);
-        this.writeStringView(view, 36, 'data');
-        view.setUint32(40, dataLength, true);
-        return header;
-    }
-
-    writeStringView(view, offset, string) {
-        for (let i = 0; i < string.length; i++) {
-            view.setUint8(offset + i, string.charCodeAt(i));
-        }
-    }
+    // createWavHeader and writeStringView are no longer needed as we are using MP3
+    // Removed createWavHeader
+    // Removed writeStringView
 
     async sendAudioToServer(audioData, isEndOfSpeech = false) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
