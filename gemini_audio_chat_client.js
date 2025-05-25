@@ -1,72 +1,323 @@
 class GeminiNativeAudioChat {
     constructor() {
         this.sessionToken = null;
+        this.geminiClient = null;
+        this.liveSession = null;
         this.isRecording = false;
         this.isConnected = false;
         this.mediaRecorder = null;
-        this.audioContext = null; // For mic visualization
+        this.audioContext = null; // Used for mic visualization
         this.analyser = null;
         this.dataArray = null;
         this.animationId = null;
-        this.audioChunks = []; // For user's outgoing audio
-
-        this.playbackAudioContext = null; // For playing Gemini's audio
-        this.currentPlaybackSource = null;
-        this.pendingAudioData = []; // To accumulate incoming audio chunks from Gemini
-        this.minPlaybackDurationThreshold = 0.5; // Play after 0.5s of audio accumulated, or on turn_complete
-
+        this.responseQueue = [];
+        this.audioChunks = [];
+        
+        // Enhanced audio playback system
+        this.playbackAudioContext = null;
+        this.audioQueue = [];
+        this.isPlaying = false;
+        this.currentSource = null;
+        this.nextPlayTime = 0;
+        this.audioInitialized = false;
+        this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        // Audio buffer management
+        this.minBufferSize = 3; // Minimum chunks before starting playback
+        this.maxBufferSize = 10; // Maximum chunks to buffer
+        this.chunkOverlap = 0.01; // 10ms overlap to prevent clicks
+        
         // VAD properties
-        this.vadSilenceThreshold = 0.01; 
-        this.vadRequiredSilenceDuration = 1500; 
-        this.vadEnergySmoothing = 0.1; 
+        this.vadSilenceThreshold = 0.01;
+        this.vadRequiredSilenceDuration = 1500;
+        this.vadEnergySmoothing = 0.1;
         this.currentEnergy = 0.0;
         this.silenceStartTime = 0;
         this.vadMonitoringInterval = null;
         
-        this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        this.audioInitializedOnInteraction = false;
-
         this.initializeUI();
         this.initializeSession();
-        this.setupMobileAudioUnlock();
+        this.setupMobileAudioHandler();
     }
 
-    setupMobileAudioUnlock() {
+    setupMobileAudioHandler() {
         if (this.isMobile) {
-            const unlockAudio = async () => {
-                if (!this.audioInitializedOnInteraction) {
-                    if (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed') {
-                        this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        this.addDebugInfo(`Playback AudioContext created on interaction (default rate: ${this.playbackAudioContext.sampleRate}Hz)`);
-                    }
-                    if (this.playbackAudioContext.state === 'suspended') {
-                        try {
-                            await this.playbackAudioContext.resume();
-                            this.addDebugInfo('Playback AudioContext resumed on interaction.');
-                        } catch (e) {
-                            this.addDebugInfo(`Error resuming playback AudioContext on interaction: ${e.message}`);
-                        }
-                    }
-                    // Also for microphone audio context if it's separate and used
-                    if (this.audioContext && this.audioContext.state === 'suspended') {
-                         try {
-                            await this.audioContext.resume();
-                            this.addDebugInfo('Microphone visualization AudioContext resumed on interaction.');
-                        } catch (e) {
-                            this.addDebugInfo(`Error resuming mic AudioContext on interaction: ${e.message}`);
-                        }
-                    }
-                    this.audioInitializedOnInteraction = true;
-                    document.removeEventListener('click', unlockAudio);
-                    document.removeEventListener('touchstart', unlockAudio);
+            // Add a one-time click handler to initialize audio on mobile
+            const initAudio = async () => {
+                if (!this.audioInitialized) {
+                    await this.initializeAudioContext();
+                    document.removeEventListener('click', initAudio);
+                    document.removeEventListener('touchstart', initAudio);
                 }
             };
-            document.addEventListener('click', unlockAudio);
-            document.addEventListener('touchstart', unlockAudio);
-            this.addDebugInfo('Mobile: Audio unlock handler set up. Tap screen to enable audio.');
+            
+            document.addEventListener('click', initAudio);
+            document.addEventListener('touchstart', initAudio);
+            
+            this.addDebugInfo('Mobile device detected. Audio will initialize on first user interaction.');
         }
     }
 
+    async initializeAudioContext() {
+        try {
+            if (this.playbackAudioContext) {
+                return; // Already initialized
+            }
+            
+            // Create AudioContext with optimal settings
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            
+            // Try to create with 48kHz (widely supported)
+            try {
+                this.playbackAudioContext = new AudioContextClass({ 
+                    sampleRate: 48000,
+                    latencyHint: 'interactive'
+                });
+                this.addDebugInfo(`AudioContext created with sampleRate: ${this.playbackAudioContext.sampleRate}Hz`);
+            } catch (e) {
+                // Fallback to default sample rate
+                this.playbackAudioContext = new AudioContextClass();
+                this.addDebugInfo(`AudioContext created with default sampleRate: ${this.playbackAudioContext.sampleRate}Hz`);
+            }
+            
+            // Resume if suspended (common on mobile)
+            if (this.playbackAudioContext.state === 'suspended') {
+                await this.playbackAudioContext.resume();
+                this.addDebugInfo('AudioContext resumed from suspended state');
+            }
+            
+            // Create a gain node for volume control
+            this.gainNode = this.playbackAudioContext.createGain();
+            this.gainNode.connect(this.playbackAudioContext.destination);
+            
+            this.audioInitialized = true;
+            this.addDebugInfo('Audio system initialized successfully');
+            
+            // Start the audio processing loop
+            this.startAudioProcessingLoop();
+            
+        } catch (error) {
+            this.addDebugInfo(`Failed to initialize audio context: ${error.message}`);
+            console.error('Audio initialization error:', error);
+        }
+    }
+
+    startAudioProcessingLoop() {
+        const processAudioQueue = async () => {
+            if (this.audioQueue.length > 0 && !this.isPlaying) {
+                // Wait for minimum buffer size unless queue is being finalized
+                if (this.audioQueue.length >= this.minBufferSize || this.audioQueue.some(item => item.isFinal)) {
+                    await this.playNextInQueue();
+                }
+            }
+            
+            // Continue processing
+            if (this.audioInitialized) {
+                requestAnimationFrame(processAudioQueue);
+            }
+        };
+        
+        processAudioQueue();
+    }
+
+    async playNextInQueue() {
+        if (this.audioQueue.length === 0 || this.isPlaying) {
+            return;
+        }
+        
+        const audioItem = this.audioQueue.shift();
+
+        if (audioItem.isFinal && !audioItem.buffer) {
+            this.addDebugInfo('Reached final audio marker in queue. Playback complete.');
+            this.isPlaying = false;
+            this.nextPlayTime = 0; // Reset for next interaction
+            // Potentially stop waveform animation if it's tied to isPlaying
+            if (typeof this.animateWaveformForAudio === 'function' && this.isPlaying === false) {
+                 // This is a placeholder, actual stop logic might be different
+            }
+            return;
+        }
+
+        if (!audioItem.buffer) {
+            this.addDebugInfo('Skipping queue item with no buffer.');
+            this.isPlaying = false; // Allow next item to be processed
+            if (this.audioQueue.length > 0) {
+                requestAnimationFrame(() => this.playNextInQueue());
+            }
+            return;
+        }
+        
+        this.isPlaying = true;
+        try {
+            await this.playProcessedAudio(audioItem);
+        } catch (error) {
+            this.addDebugInfo(`Error playing audio: ${error.message}`);
+        }
+        
+        this.isPlaying = false;
+        
+        // Immediately try to play next item for smooth playback
+        if (this.audioQueue.length > 0) {
+            // Using requestAnimationFrame to avoid call stack overflow if many short buffers
+            requestAnimationFrame(() => this.playNextInQueue());
+        } else {
+            this.nextPlayTime = 0; // Reset if queue is empty
+             if (typeof this.animateWaveformForAudio === 'function') {
+                // This is a placeholder, actual stop logic might be different
+            }
+        }
+    }
+
+    async playProcessedAudio(audioItem) {
+        // This function now assumes audioItem.buffer is valid
+        return new Promise((resolve, reject) => {
+            try {
+                if (!this.playbackAudioContext || !audioItem.buffer) {
+                    this.addDebugInfo('PlaybackAudioContext or audio buffer missing in playProcessedAudio.');
+                    reject(new Error('Audio context or buffer missing.'));
+                    return;
+                }
+
+                const source = this.playbackAudioContext.createBufferSource();
+                source.buffer = audioItem.buffer;
+                
+                // Connect through gain node
+                source.connect(this.gainNode);
+                
+                // Calculate when to start this chunk
+                const currentTime = this.playbackAudioContext.currentTime;
+                const startTime = Math.max(currentTime, this.nextPlayTime - this.chunkOverlap);
+                
+                // Update next play time
+                this.nextPlayTime = startTime + audioItem.buffer.duration;
+                
+                source.onended = () => {
+                    this.addDebugInfo(`Audio chunk finished (duration: ${audioItem.buffer.duration.toFixed(3)}s)`);
+                    resolve();
+                };
+                
+                source.start(startTime);
+                this.currentSource = source;
+                
+                // Update UI
+                if (audioItem.isFirst) {
+                    this.addMessage('🔊 [Playing audio response]', 'ai');
+                    this.animateWaveformForAudio();
+                }
+                
+            } catch (error) {
+                this.addDebugInfo(`Playback error: ${error.message}`);
+                reject(error);
+            }
+        });
+    }
+
+    async queueAudioData(base64AudioData, isFirst = false, isFinal = false) {
+        if (!base64AudioData) {
+            if (isFinal) {
+                // Mark the end of audio stream
+                this.audioQueue.push({ isFinal: true });
+            }
+            return;
+        }
+        
+        try {
+            // Initialize audio context if not already done
+            if (!this.audioInitialized) {
+                await this.initializeAudioContext();
+            }
+            
+            // Decode base64 to ArrayBuffer
+            const binaryString = atob(base64AudioData);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // Create audio buffer from PCM data
+            const audioBuffer = await this.createAudioBufferFromPCM(bytes);
+            
+            // Add to queue
+            this.audioQueue.push({
+                buffer: audioBuffer,
+                isFirst: isFirst,
+                isFinal: isFinal
+            });
+            
+            this.addDebugInfo(`Queued audio chunk: ${audioBuffer.duration.toFixed(3)}s, queue size: ${this.audioQueue.length}`);
+            
+            // Manage buffer size
+            if (this.audioQueue.length > this.maxBufferSize) {
+                this.addDebugInfo('Audio queue full, dropping oldest chunk');
+                this.audioQueue.shift();
+            }
+            
+        } catch (error) {
+            this.addDebugInfo(`Failed to queue audio: ${error.message}`);
+        }
+    }
+
+    async createAudioBufferFromPCM(pcmData) {
+        // Gemini sends 24kHz, 16-bit, mono PCM
+        const inputSampleRate = 24000;
+        const numSamples = pcmData.length / 2; // 16-bit = 2 bytes per sample
+        
+        // Create a buffer at the AudioContext's sample rate
+        const outputSampleRate = this.playbackAudioContext.sampleRate;
+        const outputNumSamples = Math.floor(numSamples * outputSampleRate / inputSampleRate);
+        
+        const audioBuffer = this.playbackAudioContext.createBuffer(1, outputNumSamples, outputSampleRate);
+        const channelData = audioBuffer.getChannelData(0);
+        
+        // Convert PCM to float samples with resampling
+        const dataView = new DataView(pcmData.buffer, pcmData.byteOffset, pcmData.length);
+        
+        for (let outputIndex = 0; outputIndex < outputNumSamples; outputIndex++) {
+            // Calculate corresponding input sample index
+            const inputIndex = Math.floor(outputIndex * inputSampleRate / outputSampleRate);
+            
+            if (inputIndex * 2 + 1 < pcmData.length) {
+                // Read 16-bit PCM sample (little-endian)
+                const pcmSample = dataView.getInt16(inputIndex * 2, true);
+                // Convert to normalized float [-1, 1]
+                channelData[outputIndex] = pcmSample / 32768.0;
+            }
+        }
+        
+        return audioBuffer;
+    }
+
+    // Override the original playAudioResponse method
+    async playAudioResponse(audioData) {
+        try {
+            this.addDebugInfo(`Received audio data for queueing: ${audioData ? audioData.length : 0} bytes`);
+            
+            if (!audioData) {
+                this.addDebugInfo('No audio data to play.');
+                return;
+            }
+            
+            // Determine if this is the first chunk by checking queue
+            const isFirst = this.audioQueue.length === 0 && !this.isPlaying;
+            
+            // Queue the audio data instead of playing immediately
+            await this.queueAudioData(audioData, isFirst, false);
+            
+        } catch (error) {
+            this.addDebugInfo(`Audio queueing error: ${error.message}`);
+            console.error('Error queueing audio:', error);
+        }
+    }
+
+    // Add method to handle end of audio stream
+    finalizeAudioStream() {
+        this.addDebugInfo('Finalizing audio stream');
+        this.queueAudioData(null, false, true);
+    }
+
+    // Keep all the original methods below with minor modifications...
+    
     initializeUI() {
         this.statusEl = document.getElementById('status');
         this.micButton = document.getElementById('micButton');
@@ -77,9 +328,12 @@ class GeminiNativeAudioChat {
         this.waveform = document.getElementById('waveform');
         this.debugInfo = document.getElementById('debugInfo');
 
+        // Event listeners
         this.micButton.addEventListener('click', () => this.toggleRecording());
         this.connectBtn.addEventListener('click', () => this.connectToWebSocket());
         this.disconnectBtn.addEventListener('click', () => this.disconnect());
+
+        // Generate wave bars
         this.generateWaveBars();
     }
 
@@ -103,28 +357,50 @@ class GeminiNativeAudioChat {
     async initializeSession() {
         try {
             this.addDebugInfo('Starting session initialization...');
+            
+            // Get session token from URL
             const urlParams = new URLSearchParams(window.location.search);
             this.sessionToken = urlParams.get('session');
-            if (!this.sessionToken) throw new Error('No session token provided');
+            
+            if (!this.sessionToken) {
+                throw new Error('No session token provided');
+            }
 
             this.addDebugInfo(`Session token: ${this.sessionToken.substring(0, 20)}...`);
             this.updateStatus('Getting session config...');
             
+            // Get session configuration from n8n
             const apiUrl = `https://n8n.lomeai.com/webhook/voice-session?session=${this.sessionToken}&action=initialize`;
             this.addDebugInfo(`Calling API: ${apiUrl}`);
             
             const response = await fetch(apiUrl);
             const rawData = await response.json();
+            
             this.addDebugInfo(`Raw response: ${JSON.stringify(rawData).substring(0, 200)}...`);
             
-            let data = Array.isArray(rawData) && rawData.length > 0 ? rawData[0] : rawData;
-            if (!data || !data.success) throw new Error(data?.error || 'Failed to initialize session');
+            // Handle the response format from n8n
+            let data;
+            if (Array.isArray(rawData) && rawData.length > 0) {
+                data = rawData[0];
+                this.addDebugInfo('Parsed array response');
+            } else {
+                data = rawData;
+                this.addDebugInfo('Direct response format');
+            }
+            
+            if (!data || !data.success) {
+                throw new Error(data?.error || 'Failed to initialize session');
+            }
 
             this.sessionConfig = data.config;
             this.sessionInfo.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
-            this.addDebugInfo(`Model: ${this.sessionConfig.model}, API Key: ${this.sessionConfig.apiKey ? 'Present' : 'Missing'}`);
+            
+            this.addDebugInfo(`Model: ${this.sessionConfig.model}`);
+            this.addDebugInfo(`API Key: ${this.sessionConfig.apiKey ? 'Present' : 'Missing'}`);
+            
             this.updateStatus('Ready to connect');
             this.connectBtn.disabled = false;
+            
         } catch (error) {
             this.addDebugInfo(`Session init error: ${error.message}`);
             console.error('Session initialization failed:', error);
@@ -135,22 +411,27 @@ class GeminiNativeAudioChat {
     async connectToWebSocket() {
         try {
             this.addDebugInfo('Connecting to WebSocket proxy...');
-            if (!this.isMobile && (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed')) {
-                this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.addDebugInfo(`Playback AudioContext created (default rate: ${this.playbackAudioContext.sampleRate}Hz)`);
-                 if (this.playbackAudioContext.state === 'suspended') {
-                    await this.playbackAudioContext.resume();
-                 }
-            }
-
-            const wsUrl = this.sessionConfig.websocketProxyUrl;
-            if (!wsUrl) throw new Error('No WebSocket proxy URL provided');
             
+            // Initialize audio context early on desktop
+            if (!this.isMobile && !this.audioInitialized) {
+                await this.initializeAudioContext();
+            }
+            
+            // Get the WebSocket URL from the session config
+            const wsUrl = this.sessionConfig.websocketProxyUrl;
+            if (!wsUrl) {
+                throw new Error('No WebSocket proxy URL provided');
+            }
+            
+            // Create WebSocket connection with session token
             this.ws = new WebSocket(`${wsUrl}&session=${this.sessionToken}`);
+            
+            // Set up WebSocket handlers
             this.ws.onopen = () => {
                 this.addDebugInfo('WebSocket connection opened');
                 this.updateStatus('WebSocket connected, waiting for session initialization...', '');
             };
+            
             this.ws.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data);
@@ -159,16 +440,19 @@ class GeminiNativeAudioChat {
                     this.addDebugInfo(`Failed to parse message: ${error.message}`);
                 }
             };
+            
             this.ws.onerror = (error) => {
-                this.addDebugInfo(`WebSocket error: ${error.message || 'Unknown error'}`);
+                this.addDebugInfo(`WebSocket error: ${error.message}`);
                 this.updateStatus('Connection error', 'error');
                 this.handleDisconnection();
             };
+            
             this.ws.onclose = (event) => {
-                this.addDebugInfo(`WebSocket closed: ${event.code} ${event.reason}`);
+                this.addDebugInfo(`WebSocket closed: ${event.reason}`);
                 this.updateStatus('Connection closed', 'error');
-                this.handleDisconnection(event.reason || 'Closed by server');
+                this.handleDisconnection();
             };
+            
         } catch (error) {
             this.addDebugInfo(`Connection error: ${error.message}`);
             console.error('Failed to connect:', error);
@@ -182,9 +466,14 @@ class GeminiNativeAudioChat {
             case 'session_initialized':
                 this.addDebugInfo('Session initialized successfully');
                 this.updateStatus('Session ready - Connecting to Gemini...', '');
-                this.ws.send(JSON.stringify({ type: 'connect_gemini' }));
+                
+                // Now it's safe to connect to Gemini
+                this.ws.send(JSON.stringify({
+                    type: 'connect_gemini'
+                }));
                 this.addDebugInfo('Sent connect_gemini message');
                 break;
+                
             case 'gemini_connected':
                 this.addDebugInfo('Received gemini_connected message');
                 this.isConnected = true;
@@ -195,160 +484,78 @@ class GeminiNativeAudioChat {
                 this.connectBtn.disabled = true;
                 this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
                 break;
+                
             case 'gemini_disconnected':
                 this.addDebugInfo('Received gemini_disconnected message: ' + message.reason);
-                this.handleDisconnection(message.reason);
-                this.addMessage(`🔌 Disconnected from Gemini: ${message.reason}`, 'ai');
+                this.isConnected = false;
+                this.updateStatus('Disconnected from Gemini: ' + message.reason, 'error');
+                this.micButton.disabled = true;
+                this.micButton.classList.remove('connected');
+                this.disconnectBtn.disabled = true;
+                this.connectBtn.disabled = false;
+                this.addMessage('🔌 Disconnected from Gemini: ' + message.reason, 'ai');
                 break;
+                
             case 'audio_response':
-                if (message.audioData) {
-                    this.pendingAudioData.push(message.audioData);
-                    this.processPendingAudio(false); // Process, but don't force play unless threshold met
-                }
+                this.playAudioResponse(message.audioData);
                 break;
+                
             case 'text_response':
                 this.addMessage('🤖 ' + message.text, 'ai');
                 break;
+                
             case 'error':
                 this.addDebugInfo(`Server error: ${message.message}`);
                 this.updateStatus(message.message, 'error');
                 break;
+                
             case 'turn_complete':
-                this.addDebugInfo('Turn completed by Gemini.');
-                this.processPendingAudio(true); // Force play remaining audio
+                this.addDebugInfo('Turn completed');
+                this.finalizeAudioStream();
                 break;
+            
             case 'gemini_setup_complete':
                 this.addDebugInfo('Received gemini_setup_complete message from backend.');
                 break;
+
             case 'input_transcription':
                 this.addDebugInfo(`Input transcription: ${message.text}`);
-                this.addMessage(`🎤 You: ${message.text}`, 'user');
+                this.addMessage(`🎤 You: ${message.text}`, 'user'); // Display all input transcriptions
                 break;
+
             case 'output_transcription':
                 this.addDebugInfo(`Output transcription: ${message.text}`);
-                this.addMessage(`🤖 AI: ${message.text}`, 'ai');
+                this.addMessage(`🤖 AI: ${message.text}`, 'ai'); // Display all output transcriptions
                 break;
+                
             default:
                 this.addDebugInfo(`Unknown message type: ${message.type}`);
         }
     }
-    
-    async processPendingAudio(forcePlay) {
-        if (this.pendingAudioData.length === 0) return;
-
-        // Assuming MP3 chunks are self-contained enough or backend sends one MP3 per utterance part
-        // For simplicity now, we'll play each MP3 chunk as it meets the criteria,
-        // rather than trying to concatenate raw MP3 byte streams (which is complex).
-        // If Gemini sends audio in multiple 'audio_response' messages for a single logical utterance,
-        // this will play them sequentially.
-
-        // Let's estimate duration based on typical MP3 bitrate if needed, though decodeAudioData is better
-        // For now, we'll rely on forcePlay or a simple chunk count.
-        const estimatedTotalDuration = this.pendingAudioData.reduce((acc, b64) => acc + (b64.length * 6 / 8) / (128000 / 8), 0); // Rough estimate for 128kbps MP3
-
-        if (forcePlay || estimatedTotalDuration >= this.minPlaybackDurationThreshold || this.pendingAudioData.length >= 1) { // Play if any MP3 chunk is ready or forced
-            const mp3Base64ToPlay = this.pendingAudioData.join(''); // Concatenate if backend ever sends partial base64 MP3s (unlikely for MP3)
-            this.pendingAudioData = []; // Clear pending chunks
-            if (mp3Base64ToPlay) {
-                await this.playMp3Data(mp3Base64ToPlay);
-            }
-        } else {
-            this.addDebugInfo(`MP3 audio accumulated: ${this.pendingAudioData.length} chunks, est. duration ${estimatedTotalDuration.toFixed(2)}s. Waiting for more or turn_complete.`);
-        }
-    }
-
-    async playMp3Data(mp3Base64) {
-        try {
-            this.addDebugInfo(`playMp3Data called. MP3 Base64 length: ${mp3Base64.length}`);
-            if (!mp3Base64) {
-                this.addDebugInfo('No MP3 data to play.');
-                return;
-            }
-
-            if (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed') {
-                this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.addDebugInfo(`Playback AudioContext re/initialized (default rate: ${this.playbackAudioContext.sampleRate}Hz)`);
-            }
-            
-            if (this.playbackAudioContext.state === 'suspended') {
-                this.addDebugInfo('Playback AudioContext is suspended, attempting to resume...');
-                try {
-                    await this.playbackAudioContext.resume();
-                    this.addDebugInfo(`Playback AudioContext state after resume: ${this.playbackAudioContext.state}`);
-                } catch (resumeError) {
-                    this.addDebugInfo(`Error resuming AudioContext: ${resumeError.message}. Playback may fail.`);
-                    console.error("Error resuming AudioContext:", resumeError);
-                    this.updateStatus('Audio resume failed. Tap screen?', 'error');
-                    return;
-                }
-            }
-            
-            const binaryString = window.atob(mp3Base64);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-
-            this.addDebugInfo(`MP3 data decoded from Base64. Total size: ${bytes.byteLength} bytes.`);
-
-            // Use slice(0) to pass a detached ArrayBuffer, which is required by decodeAudioData in some browsers
-            this.playbackAudioContext.decodeAudioData(bytes.buffer.slice(0),
-                (decodedBuffer) => {
-                    this.addDebugInfo(`MP3 decodeAudioData successful. Decoded SR: ${decodedBuffer.sampleRate}Hz, Duration: ${decodedBuffer.duration.toFixed(3)}s`);
-                    if (this.currentPlaybackSource) {
-                        try { this.currentPlaybackSource.stop(); } catch(e){ this.addDebugInfo("Error stopping previous source: " + e.message); }
-                    }
-                    const source = this.playbackAudioContext.createBufferSource();
-                    source.buffer = decodedBuffer;
-                    
-                    // No playbackRate adjustment needed for MP3s, browser handles it.
-                    this.addDebugInfo(`Playing MP3 at native sample rate of buffer: ${decodedBuffer.sampleRate}Hz, Context SR: ${this.playbackAudioContext.sampleRate}Hz`);
-                    
-                    source.connect(this.playbackAudioContext.destination);
-                    source.start();
-                    this.currentPlaybackSource = source;
-                    this.addMessage('🔊 [Playing audio response]', 'ai');
-                    
-                    source.onended = () => {
-                        this.addDebugInfo('MP3 playback finished.');
-                        if (this.currentPlaybackSource === source) {
-                            this.currentPlaybackSource = null;
-                        }
-                         // If there's more in the queue (e.g. from rapid turn_complete), process it
-                        if (this.pendingAudioData.length > 0) {
-                           this.processPendingAudio(true); // Force play next if available
-                        }
-                    };
-                },
-                (error) => {
-                    this.addDebugInfo(`MP3 decodeAudioData error: ${error.message || error}`);
-                    console.error('Error decoding MP3 audio data:', error);
-                }
-            );
-        } catch (error) {
-            this.addDebugInfo(`MP3 playback error: ${error.message}. Stack: ${error.stack}`);
-            console.error('Error playing MP3 audio:', error);
-        }
-    }
-
-    // createWavHeader and writeStringView are no longer needed as we are using MP3
-    // Removed createWavHeader
-    // Removed writeStringView
 
     async sendAudioToServer(audioData, isEndOfSpeech = false) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            this.addDebugInfo('WebSocket not connected for sendAudioToServer');
+            this.addDebugInfo('WebSocket not connected');
             return;
         }
-        const messagePayload = {
-            type: 'audio_input',
-            audioData: audioData,
-            mimeType: 'audio/webm;codecs=opus',
-            isEndOfSpeech: isEndOfSpeech
-        };
-        this.ws.send(JSON.stringify(messagePayload));
-        this.addDebugInfo(`Audio sent: ${audioData ? audioData.length : 0} bytes, EOS: ${isEndOfSpeech}`);
+
+        try {
+            const messagePayload = {
+                type: 'audio_input',
+                audioData: audioData, // This is base64 encoded
+                mimeType: 'audio/webm;codecs=opus' // Correct MIME type for MediaRecorder default
+            };
+            if (isEndOfSpeech) {
+                messagePayload.isEndOfSpeech = true;
+            }
+            this.ws.send(JSON.stringify(messagePayload));
+            
+            this.addDebugInfo(`Audio sent: ${audioData ? audioData.length : 0} bytes, isEndOfSpeech: ${isEndOfSpeech}`);
+            
+        } catch (error) {
+            this.addDebugInfo(`Failed to send audio: ${error.message}`);
+            console.error('Error sending audio:', error);
+        }
     }
 
     async toggleRecording() {
@@ -356,13 +563,10 @@ class GeminiNativeAudioChat {
             this.updateStatus('Please connect first', 'error');
             return;
         }
-        if (this.isMobile && !this.audioInitializedOnInteraction) {
-            this.addDebugInfo('Mobile audio not yet unlocked by user interaction. Please tap screen.');
-            await this.setupMobileAudioUnlock(); 
-            if (!this.audioInitializedOnInteraction) {
-                 this.updateStatus('Tap screen to enable audio', 'error');
-                 return;
-            }
+
+        // Ensure audio is initialized on mobile
+        if (this.isMobile && !this.audioInitialized) {
+            await this.initializeAudioContext();
         }
 
         if (this.isRecording) {
@@ -375,46 +579,46 @@ class GeminiNativeAudioChat {
     async startContinuousConversation() {
         try {
             this.addDebugInfo('Starting continuous conversation...');
+            
+            // Request microphone access with correct format for Gemini
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                } 
             });
-            this.addDebugInfo('Microphone access granted.');
 
-            if (!this.audioContext || this.audioContext.state === 'closed') {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.addDebugInfo(`Mic visualization AudioContext created (default rate: ${this.audioContext.sampleRate}Hz)`);
-            }
-            if (this.audioContext.state === 'suspended') await this.audioContext.resume();
+            this.addDebugInfo('Microphone access granted');
 
-
+            // Set up audio context for visualization
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             this.analyser = this.audioContext.createAnalyser();
             const source = this.audioContext.createMediaStreamSource(stream);
             source.connect(this.analyser);
+
             this.analyser.fftSize = 256;
             const bufferLength = this.analyser.frequencyBinCount;
             this.dataArray = new Uint8Array(bufferLength);
 
+            // Start continuous recording for real-time streaming
             this.stream = stream;
             this.isRecording = true;
+            
             this.micButton.classList.add('recording');
             this.micButton.innerHTML = '⏹️';
             this.updateStatus('Conversation active - Speak naturally', 'recording');
-            this.startWaveAnimation();
-            this.addMessage('🎤 Continuous conversation started...', 'user');
             
-            this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: 'audio/webm;codecs=opus' });
-            this.audioChunks = []; // Clear previous user audio chunks
-            this.mediaRecorder.ondataavailable = async (event) => {
-                if (event.data.size > 0) {
-                    // No need to push to this.audioChunks if sending immediately
-                    const audioBuffer = await event.data.arrayBuffer();
-                    const base64Audio = this.arrayBufferToBase64(audioBuffer);
-                    await this.sendAudioToServer(base64Audio, false);
-                }
-            };
-            this.mediaRecorder.start(500); 
-            this.addDebugInfo('MediaRecorder started for continuous streaming.');
+            this.startWaveAnimation();
+            this.addMessage('🎤 Continuous conversation started - speak naturally and Gemini will respond automatically', 'user');
+            
+            // Start streaming audio to Gemini in real-time
+            this.startContinuousAudioStreaming();
+            // Start VAD monitoring
             this.startVADMonitoring();
+
         } catch (error) {
             this.addDebugInfo(`Recording start error: ${error.message}`);
             console.error('Failed to start recording:', error);
@@ -422,76 +626,127 @@ class GeminiNativeAudioChat {
         }
     }
 
+    async startContinuousAudioStreaming() {
+        try {
+            // Create a media recorder for real-time streaming
+            this.mediaRecorder = new MediaRecorder(this.stream, {
+                mimeType: 'audio/webm;codecs=opus'
+            });
+            
+            this.audioChunks = [];
+            
+            this.mediaRecorder.ondataavailable = async (event) => {
+                if (event.data.size > 0) {
+                    this.audioChunks.push(event.data);
+                    // Send audio chunk to WebSocket server
+                    const audioBuffer = await event.data.arrayBuffer();
+                    const base64Audio = this.arrayBufferToBase64(audioBuffer);
+                    // Send intermediate chunks with isEndOfSpeech: false
+                    await this.sendAudioToServer(base64Audio, false);
+                }
+            };
+            
+            // Start recording with smaller time slices for more responsive streaming
+            this.mediaRecorder.start(500); // 500ms chunks for better responsiveness
+            
+            this.addDebugInfo('Continuous audio streaming started with automatic VAD');
+            
+        } catch (error) {
+            this.addDebugInfo(`Audio streaming error: ${error.message}`);
+            console.error('Failed to start audio streaming:', error);
+        }
+    }
+
     stopRecording() {
         if (this.isRecording) {
-            this.addDebugInfo('Stopping conversation...');
-            this.stopVADMonitoring();
+            this.addDebugInfo('Stopping conversation (stopRecording called)...');
+            this.stopVADMonitoring(); // Stop VAD first
+            
             this.isRecording = false;
             
             if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-                this.mediaRecorder.onstop = async () => { 
-                    this.addDebugInfo('MediaRecorder stopped. Sending final EOS signal.');
+                this.mediaRecorder.onstop = async () => {
+                    this.addDebugInfo('MediaRecorder stopped, sending final isEndOfSpeech signal.');
                     await this.sendAudioToServer(null, true); 
                 };
                 try {
-                    this.mediaRecorder.stop();
-                } catch(e) {
-                     this.addDebugInfo(`Error stopping mediaRecorder: ${e.message}. Still sending EOS.`);
-                     this.sendAudioToServer(null, true); // Ensure EOS is sent
+                    this.mediaRecorder.stop(); // This will trigger onstop
+                } catch (e) {
+                    this.addDebugInfo(`Error stopping mediaRecorder: ${e.message}. Still attempting to send EOS.`);
+                    // If stop fails, still try to send EOS, though audio might be incomplete.
+                    this.sendAudioToServer(null, true);
                 }
             } else {
-                this.addDebugInfo('MediaRecorder inactive or not found. Sending EOS signal directly.');
-                this.sendAudioToServer(null, true);
+                this.addDebugInfo('MediaRecorder inactive or not found, sending isEndOfSpeech signal directly.');
+                this.sendAudioToServer(null, true); // Send EOS if recorder wasn't active
             }
             
             if (this.stream) {
                 this.stream.getTracks().forEach(track => track.stop());
-                this.stream = null;
+                this.stream = null; // Clear the stream
             }
+            
             if (this.audioContext && this.audioContext.state !== 'closed') {
-                 // Optionally close the mic visualization context
-                 // this.audioContext.close().catch(e => this.addDebugInfo("Error closing mic AC: " + e.message));
-                 // this.audioContext = null;
+                // No need to close the mic visualization audioContext here, 
+                // as it's tied to the stream which is now stopped.
+                // It will be recreated on next recording start.
             }
                     
             this.micButton.classList.remove('recording');
             this.micButton.innerHTML = '🎤';
-            this.updateStatus('Connected! Click microphone to talk', 'connected');
+            this.updateStatus('Connected! Click microphone to start conversation', 'connected');
+            
             this.stopWaveAnimation();
             this.addMessage('🎤 Conversation ended.', 'user');
+        } else {
+            this.addDebugInfo('stopRecording called but not currently recording.');
         }
     }
 
     startVADMonitoring() {
-        this.stopVADMonitoring(); 
+        this.stopVADMonitoring(); // Clear any existing interval
         this.silenceStartTime = 0;
         this.currentEnergy = 0.0;
+        
         if (!this.analyser) {
-            this.addDebugInfo("VAD: Analyser not ready.");
+            this.addDebugInfo("VAD: Analyser not ready, cannot start monitoring.");
             return;
         }
-        this.addDebugInfo(`VAD: Starting. Threshold: ${this.vadSilenceThreshold}, Duration: ${this.vadRequiredSilenceDuration}ms`);
-        this.vadMonitoringInterval = setInterval(() => this.checkVAD(), 100);
+        this.addDebugInfo(`VAD: Starting monitoring. Threshold: ${this.vadSilenceThreshold}, Duration: ${this.vadRequiredSilenceDuration}ms`);
+        
+        this.vadMonitoringInterval = setInterval(() => this.checkVAD(), 100); // Check every 100ms
     }
 
     checkVAD() {
-        if (!this.isRecording || !this.analyser || !this.dataArray) return;
+        if (!this.isRecording || !this.analyser || !this.dataArray) {
+            return;
+        }
 
         this.analyser.getByteFrequencyData(this.dataArray);
         let sum = 0;
-        for (let i = 0; i < this.dataArray.length; i++) sum += this.dataArray[i];
+        for (let i = 0; i < this.dataArray.length; i++) {
+            sum += this.dataArray[i];
+        }
         const average = this.dataArray.length > 0 ? sum / this.dataArray.length : 0;
-        const normalizedEnergy = average / 255;
+        
+        const normalizedEnergy = average / 255; // Normalize to 0-1 range
         this.currentEnergy = (this.currentEnergy * (1 - this.vadEnergySmoothing)) + (normalizedEnergy * this.vadEnergySmoothing);
 
         if (this.currentEnergy < this.vadSilenceThreshold) {
-            if (this.silenceStartTime === 0) this.silenceStartTime = Date.now();
+            if (this.silenceStartTime === 0) {
+                this.silenceStartTime = Date.now();
+            }
+            
             if ((Date.now() - this.silenceStartTime) >= this.vadRequiredSilenceDuration) {
-                this.addDebugInfo(`VAD: End of speech detected. Silence: ${Date.now() - this.silenceStartTime}ms`);
-                this.stopRecording(); 
+                this.addDebugInfo(`VAD: End of speech detected. Silence duration: ${Date.now() - this.silenceStartTime}ms`);
+                this.stopVADMonitoring(); // Stop VAD before calling stopRecording
+                this.stopRecording(); // This will handle sending EOS
             }
         } else {
-            this.silenceStartTime = 0;
+            if (this.silenceStartTime !== 0) {
+                // Speech detected, reset silence timer
+            }
+            this.silenceStartTime = 0; // Reset silence timer if energy is above threshold
         }
     }
 
@@ -506,59 +761,82 @@ class GeminiNativeAudioChat {
     arrayBufferToBase64(buffer) {
         const bytes = new Uint8Array(buffer);
         let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
         return window.btoa(binary);
     }
 
     startWaveAnimation() {
         const animate = () => {
-            if (!this.isRecording || !this.analyser || !this.dataArray) return;
+            if (!this.isRecording) return;
+            
             this.analyser.getByteFrequencyData(this.dataArray);
+            
             const bars = this.waveform.querySelectorAll('.wave-bar');
             bars.forEach((bar, index) => {
                 const value = this.dataArray[index] || 0;
-                bar.style.height = Math.max(5, (value / 255) * 50) + 'px';
+                const height = Math.max(5, (value / 255) * 50);
+                bar.style.height = height + 'px';
             });
+            
             this.animationId = requestAnimationFrame(animate);
         };
         animate();
     }
 
     stopWaveAnimation() {
-        if (this.animationId) cancelAnimationFrame(this.animationId);
-        this.animationId = null;
-        const bars = this.waveform.querySelectorAll('.wave-bar');
-        bars.forEach(bar => bar.style.height = '10px');
-    }
-
-    disconnect(reason = 'User disconnected') {
-        this.addDebugInfo(`Disconnecting... Reason: ${reason}`);
-        if (this.currentPlaybackSource) {
-            try { this.currentPlaybackSource.stop(); } catch(e){}
-            this.currentPlaybackSource = null;
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
         }
-        this.pendingAudioData = []; // Clear pending audio on disconnect
-        if (this.ws) this.ws.close(1000, reason);
-        this.handleDisconnection(reason);
+        
+        const bars = this.waveform.querySelectorAll('.wave-bar');
+        bars.forEach(bar => {
+            bar.style.height = '10px';
+        });
     }
 
-    handleDisconnection(reason = 'Unknown reason') {
+    disconnect() {
+        this.addDebugInfo('Disconnecting...');
+        
+        // Clear audio queue
+        this.audioQueue = [];
+        this.isPlaying = false;
+        this.nextPlayTime = 0;
+        
+        // Stop any current audio
+        if (this.currentSource) {
+            try {
+                this.currentSource.stop();
+            } catch (e) {
+                // Ignore if already stopped
+            }
+        }
+        
+        if (this.ws) {
+            this.ws.close();
+        }
+        this.handleDisconnection();
+    }
+
+    handleDisconnection() {
         this.isConnected = false;
         this.isRecording = false;
-        if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-            this.mediaRecorder.stop();
-        }
-        if (this.stream) this.stream.getTracks().forEach(track => track.stop());
-        this.stream = null;
-        this.stopVADMonitoring();
-        this.stopWaveAnimation();
         
         this.micButton.disabled = true;
         this.micButton.classList.remove('connected', 'recording');
         this.micButton.innerHTML = '🎤';
+        
         this.connectBtn.disabled = false;
         this.disconnectBtn.disabled = true;
-        this.updateStatus(`Disconnected: ${reason}. Click Connect.`, 'error');
+        
+        this.stopWaveAnimation();
+        this.updateStatus('Disconnected. Click Connect to start again');
+        
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+        }
     }
 
     updateStatus(message, type = '') {
@@ -570,84 +848,135 @@ class GeminiNativeAudioChat {
         const messageEl = document.createElement('div');
         messageEl.className = `message ${sender}`;
         messageEl.textContent = text;
+        
+        // Add avatar to message
         const avatarEl = document.createElement('div');
         avatarEl.className = 'message-avatar';
         avatarEl.textContent = sender === 'ai' ? 'K' : 'U';
         messageEl.appendChild(avatarEl);
+        
         this.conversationLog.appendChild(messageEl);
         this.conversationLog.scrollTop = this.conversationLog.scrollHeight;
     }
     
     animateWaveformForAudio() {
-        // Placeholder - actual animation might be tied to isPlaying or specific audio events
+        // Simulate audio waveform animation when AI is speaking
+        let animationDuration = 0;
+        const animate = () => {
+            // Ensure animation stops if isPlaying becomes false, regardless of duration
+            if (!this.isPlaying || animationDuration > 3000) {
+                // Reset bars to default state if animation stops
+                const bars = this.waveform.querySelectorAll('.wave-bar');
+                bars.forEach(b => b.style.height = '10px'); 
+                return;
+            }
+            
+            const bars = this.waveform.querySelectorAll('.wave-bar');
+            bars.forEach((bar) => {
+                const height = Math.max(5, Math.random() * 40);
+                bar.style.height = height + 'px';
+            });
+            
+            animationDuration += 100;
+            setTimeout(animate, 100);
+        };
+        animate();
     }
 }
 
+// Initialize the app when the page loads
 window.addEventListener('load', () => {
     new GeminiNativeAudioChat();
 });
 
+// Create animated particles
 class ParticleAnimation {
     constructor() {
         this.particles = [];
         this.container = document.getElementById('particles');
-        if (!this.container) return; 
         this.containerWidth = this.container.clientWidth;
         this.containerHeight = this.container.clientHeight;
+        
         this.createParticles();
         this.animate();
+        
+        // Handle resize
         window.addEventListener('resize', () => {
-            if (!this.container) return;
             this.containerWidth = this.container.clientWidth;
             this.containerHeight = this.container.clientHeight;
-            this.createParticles(); 
         });
     }
     
     createParticles() {
-        if (!this.container) return;
+        // Clear existing particles
         this.container.innerHTML = '';
         this.particles = [];
-        const particleCount = Math.min(50, Math.floor(this.containerWidth * this.containerHeight / 15000));
+        
+        // Create new particles
+        const particleCount = Math.min(50, Math.floor(this.containerWidth * this.containerHeight / 10000));
+        
         for (let i = 0; i < particleCount; i++) {
             const particle = document.createElement('div');
             particle.className = 'particle';
-            const size = Math.random() * 5 + 2;
+            
+            // Random properties
+            const size = Math.random() * 6 + 2;
+            const x = Math.random() * this.containerWidth;
+            const y = Math.random() * this.containerHeight;
+            const speedX = (Math.random() - 0.5) * 0.5;
+            const speedY = (Math.random() - 0.5) * 0.5;
+            const opacity = Math.random() * 0.3 + 0.1;
+            
+            // Set styles
             particle.style.width = `${size}px`;
             particle.style.height = `${size}px`;
-            particle.style.left = `${Math.random() * this.containerWidth}px`;
-            particle.style.top = `${Math.random() * this.containerHeight}px`;
-            particle.style.opacity = Math.random() * 0.2 + 0.1; 
-            this.container.appendChild(particle);
+            particle.style.left = `${x}px`;
+            particle.style.top = `${y}px`;
+            particle.style.opacity = opacity;
+            
+            // Store particle data
             this.particles.push({
                 element: particle,
-                x: parseFloat(particle.style.left),
-                y: parseFloat(particle.style.top),
-                speedX: (Math.random() - 0.5) * 0.3,
-                speedY: (Math.random() - 0.5) * 0.3,
+                x, y,
+                speedX, speedY,
                 size
             });
+            
+            // Add to DOM
+            this.container.appendChild(particle);
         }
     }
     
     animate() {
-        if (!this.container || this.particles.length === 0) {
-            requestAnimationFrame(() => this.animate()); // Keep trying if particles not ready
-            return;
-        }
-        this.particles.forEach(p => {
-            p.x += p.speedX;
-            p.y += p.speedY;
-            if (p.x < -p.size) p.x = this.containerWidth;
-            if (p.x > this.containerWidth) p.x = -p.size;
-            if (p.y < -p.size) p.y = this.containerHeight;
-            if (p.y > this.containerHeight) p.y = -p.size;
-            p.element.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+        // Update particle positions
+        this.particles.forEach(particle => {
+            // Update position
+            particle.x += particle.speedX;
+            particle.y += particle.speedY;
+            
+            // Boundary check
+            if (particle.x < -particle.size) particle.x = this.containerWidth;
+            if (particle.x > this.containerWidth) particle.x = -particle.size;
+            if (particle.y < -particle.size) particle.y = this.containerHeight;
+            if (particle.y > this.containerHeight) particle.y = -particle.size;
+            
+            // Update DOM
+            particle.element.style.left = `${particle.x}px`;
+            particle.element.style.top = `${particle.y}px`;
         });
+        
+        // Continue animation
         requestAnimationFrame(() => this.animate());
     }
 }
 
+// Telegram WebApp specific code
+if (window.Telegram?.WebApp) {
+    window.Telegram.WebApp.ready();
+    window.Telegram.WebApp.expand();
+}
+
+// Initialize particle animation
 window.addEventListener('load', () => {
     new ParticleAnimation();
 });
