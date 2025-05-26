@@ -17,6 +17,7 @@
             <p class="subtitle">Premium AI voice conversation</p>
             <div class="status" id="status">Initializing...</div>
             <button class="debug-button" id="debugBtn" onclick="showDebugInfo()">🛠️</button>
+            <button class="debug-button" id="iosAudioPocButton" style="right: 50px;">iOS PoC</button> 
         </div>
         
         <div class="voice-interaction">
@@ -373,6 +374,60 @@
         window.hidePermissionGuidance = hidePermissionGuidance;
         
         debugLog('Debug system initialized');
+
+        // iOS Audio PoC Test Logic
+        const iosAudioPocButton = document.getElementById('iosAudioPocButton');
+        let pocAudioContext;
+
+        if (iosAudioPocButton) {
+            iosAudioPocButton.addEventListener('click', async () => {
+                debugLog('[iOS PoC] Button clicked. Starting audio test...');
+
+                try {
+                    if (!pocAudioContext) {
+                        debugLog('[iOS PoC] Creating AudioContext...');
+                        pocAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        debugLog(`[iOS PoC] AudioContext created. Initial state: ${pocAudioContext.state}`);
+                    } else {
+                        debugLog(`[iOS PoC] AudioContext already exists. State: ${pocAudioContext.state}`);
+                    }
+
+                    if (pocAudioContext.state === 'suspended') {
+                        debugLog('[iOS PoC] AudioContext is suspended. Attempting to resume...');
+                        try {
+                            await pocAudioContext.resume();
+                            debugLog(`[iOS PoC] AudioContext.resume() called. New state: ${pocAudioContext.state}`);
+                        } catch (resumeError) {
+                            debugLog(`[iOS PoC] Error resuming AudioContext: ${resumeError.message}`, true, resumeError);
+                            debugLog(`[iOS PoC] AudioContext state after resume error: ${pocAudioContext.state}`);
+                        }
+                    }
+
+                    debugLog('[iOS PoC] Attempting to play a silent audio element to unlock...');
+                    const silentAudioPoc = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='); // Tiny silent WAV
+                    silentAudioPoc.volume = 0; 
+
+                    try {
+                        await silentAudioPoc.play();
+                        debugLog('[iOS PoC] Silent audio played successfully.');
+                    } catch (playError) {
+                        debugLog(`[iOS PoC] Error playing silent audio: ${playError.message}`, true, playError);
+                    }
+                    
+                    debugLog(`[iOS PoC] Final AudioContext state: ${pocAudioContext.state}`);
+                    debugLog('[iOS PoC] Audio test finished.');
+
+                } catch (error) {
+                    debugLog(`[iOS PoC] General error during audio test: ${error.message}`, true, error);
+                    if (pocAudioContext) {
+                        debugLog(`[iOS PoC] AudioContext state during general error: ${pocAudioContext.state}`);
+                    }
+                }
+            });
+        } else {
+            debugLog('[iOS PoC] POC Button not found', true);
+        }
+
     </script>
 </body>
 </html>
