@@ -223,6 +223,9 @@ class TelegramAudioBridge {
     
     async _requestMicrophoneAccess() {
         try {
+            // Force permission dialog to appear immediately
+            this.log('Explicitly requesting microphone permission...');
+            
             // Enhanced constraints for better mobile compatibility
             const constraints = {
                 audio: {
@@ -233,7 +236,8 @@ class TelegramAudioBridge {
                     autoGainControl: this.config.enableAutoGainControl,
                     latency: { ideal: 0.01 },
                     volume: { ideal: 1.0 }
-                }
+                },
+                video: false // Explicitly set video to false
             };
             
             // Additional mobile constraints
@@ -244,7 +248,19 @@ class TelegramAudioBridge {
                 constraints.audio.googHighpassFilter = true;
             }
             
-            this.audio.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+            // Force immediate permission prompt by directly calling getUserMedia
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                this.log('Using navigator.mediaDevices.getUserMedia for permissions');
+                this.audio.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+            } else if (navigator.getUserMedia) {
+                // Legacy API fallback
+                this.log('Using legacy navigator.getUserMedia API');
+                this.audio.audioStream = await new Promise((resolve, reject) => {
+                    navigator.getUserMedia(constraints, resolve, reject);
+                });
+            } else {
+                throw new Error('No getUserMedia support available on this browser');
+            }
             
             this.log('Microphone access granted', {
                 tracks: this.audio.audioStream.getTracks().length,
@@ -252,7 +268,13 @@ class TelegramAudioBridge {
             });
             
         } catch (error) {
-            throw new Error(`Failed to access microphone: ${error.message}`);
+            // Specific error handling for permission denials
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                this.log('Microphone permission explicitly denied by user', true);
+                throw new Error('Microphone permission denied by user. Please check browser settings.');
+            } else {
+                throw new Error(`Failed to access microphone: ${error.message}`);
+            }
         }
     }
     
