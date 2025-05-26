@@ -1,13 +1,13 @@
 /**
  * Modern Gemini Telegram Client with enhanced mobile compatibility and error handling
- * Version: 3.0.2 (Patched for TelegramAudioBridge v3 and new message types)
+ * Version: 3.0.3 (Added usage_metadata and improved debug_log handlers)
  * 
  * Integrated with modern UI controller for Siri-like interface
  */
 
 class GeminiTelegramClient {
     constructor(options = {}) { // Accept options
-        console.log('🔄 [DEBUG] Modern GeminiTelegramClient v3.0.2 constructor called with options:', options);
+        console.log('🔄 [DEBUG] Modern GeminiTelegramClient v3.0.3 constructor called with options:', options);
         
         try {
             this.options = options; // Store options
@@ -117,6 +117,9 @@ class GeminiTelegramClient {
         if (!this.state.isConnected && this.config.autoConnect) {
             this.connectToWebSocket().then(() => {
                 setTimeout(() => { this.toggleRecording(); }, 500);
+            }).catch(err => {
+                this.log('Failed to connect WebSocket on mic click', true, err);
+                this.updateStatus('Connection failed. Tap mic to retry.', 'error');
             });
         } else {
             this.toggleRecording();
@@ -209,8 +212,8 @@ class GeminiTelegramClient {
             if (!data || !data.success) throw new Error(data?.error || 'Session configuration invalid');
             this.state.sessionConfig = data.config;
             const sessionInfoEl = document.getElementById('sessionInfo');
-            if (sessionInfoEl) sessionInfoEl.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
-            this.log(`Session configured - Model: ${this.state.sessionConfig.model}, WebSocket: ${this.state.sessionConfig.websocketProxyUrl}`);
+            if (sessionInfoEl) sessionInfoEl.textContent = `Session: ${data.sessionId || 'N/A'} | User: ${data.userId || 'N/A'}`;
+            this.log(`Session configured - Model: ${this.state.sessionConfig?.model}, WebSocket: ${this.state.sessionConfig?.websocketProxyUrl}`);
         } catch (error) {
             throw new Error('Failed to process session data: ' + error.message);
         }
@@ -219,6 +222,10 @@ class GeminiTelegramClient {
     handleSessionInitTimeout() {
         this.log('Session initialization timed out', true);
         this.updateStatus('Connection timed out - Tap to retry', 'error');
+        // Also ensure the global error reflects this for the debug panel
+        if (typeof window.debugLog === 'function') {
+            window.debugLog('[Client] Session initialization timed out', true);
+        }
     }
     
     handleSessionInitError(error) {
@@ -237,8 +244,8 @@ class GeminiTelegramClient {
         try {
             this.log('WebSocket connection starting...');
             this.updateStatus('Connecting to server...');
-            const wsUrl = this.state.sessionConfig.websocketProxyUrl;
-            if (!wsUrl) throw new Error('No WebSocket URL provided');
+            const wsUrl = this.state.sessionConfig?.websocketProxyUrl;
+            if (!wsUrl) throw new Error('No WebSocket URL provided in session config');
             if (this.state.ws) { this.state.ws.close(); this.state.ws = null; }
             const fullWsUrl = `${wsUrl}&session=${this.state.sessionToken}`;
             this.log(`Connecting to: ${fullWsUrl}`);
@@ -247,7 +254,7 @@ class GeminiTelegramClient {
             return new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => reject(new Error('Connection timeout')), 10000);
                 this.state.ws.onopen = () => { clearTimeout(timeout); resolve(true); };
-                this.state.ws.onerror = (error) => { clearTimeout(timeout); reject(error); };
+                this.state.ws.onerror = (err) => { clearTimeout(timeout); reject(err); };
             });
         } catch (error) {
             this.log(`Connection error: ${error.message}`, true);
@@ -314,9 +321,8 @@ class GeminiTelegramClient {
                 case 'health_check': this.log('Received health check'); break;
                 case 'usage_metadata': 
                     this.log('Received usage_metadata', false, message.usage);
-                    // Optionally, update UI or internal tracking with usage data
                     break;
-                case 'debug_log':
+                case 'debug_log': // Handles debug messages from backend
                     this.log(`[Backend Debug] ${message.message || ''}`, message.isError, message.data);
                     break;
                 default:
@@ -389,9 +395,18 @@ class GeminiTelegramClient {
                 this.updateStatus('Connected! Tap microphone to talk', 'connected');
             } else {
                 if (!this.audioBridge.state || !this.audioBridge.state.initialized) {
-                    this.log('Initializing audio before recording...');
-                    const initialized = await this.audioBridge.initialize();
-                    if (!initialized) { this.updateStatus('Audio init failed. Check permissions.', 'error'); return; }
+                    this.log('AudioBridge not initialized, attempting to initialize/resume context first...');
+                    // Try to ensure audio context is ready via user gesture path if possible
+                    if (typeof this.audioBridge.requestPermissionAndResumeContext === 'function') {
+                        const audioReady = await this.audioBridge.requestPermissionAndResumeContext();
+                        if (!audioReady) {
+                            this.updateStatus('Audio setup failed. Check permissions.', 'error');
+                            return;
+                        }
+                    } else { // Fallback to old initialize if new method not there (should be)
+                        const initialized = await this.audioBridge.initialize();
+                        if (!initialized) { this.updateStatus('Audio init failed. Check permissions.', 'error'); return; }
+                    }
                 }
                 const started = await this.audioBridge.startRecording();
                 if (started) {
