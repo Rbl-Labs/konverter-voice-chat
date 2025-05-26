@@ -172,6 +172,52 @@ class TelegramAudioBridge {
                 contextOptions.latencyHint = 'playback'; // Better for mobile
             }
             
+            // Create audio context
+            this.audio.context = new AudioContext(contextOptions);
+            
+            // Mobile Safari requires user interaction to resume audio context
+            if (this.state.isMobile && this.audio.context.state === 'suspended') {
+                document.addEventListener('touchstart', async () => {
+                    if (this.audio.context.state === 'suspended') {
+                        await this.audio.context.resume();
+                        this.log('Audio context resumed after user interaction');
+                    }
+                }, { once: true });
+            }
+            
+            this.log('Audio context created successfully', {
+                state: this.audio.context.state,
+                sampleRate: this.audio.context.sampleRate
+            });
+            
+        } catch (error) {
+            throw new Error(`Failed to create audio context: ${error.message}`);
+        }
+    }
+    
+    async _requestMicrophoneAccess() {
+        try {
+            // Enhanced constraints for better mobile compatibility
+            const constraints = {
+                audio: {
+                    channelCount: this.config.channels,
+                    sampleRate: { ideal: this.config.sampleRate },
+                    echoCancellation: this.config.enableEchoCancellation,
+                    noiseSuppression: this.config.enableNoiseSuppression,
+                    autoGainControl: this.config.enableAutoGainControl,
+                    latency: { ideal: 0.01 },
+                    volume: { ideal: 1.0 }
+                }
+            };
+            
+            // Additional mobile constraints
+            if (this.state.isMobile) {
+                constraints.audio.googEchoCancellation = true;
+                constraints.audio.googAutoGainControl = true;
+                constraints.audio.googNoiseSuppression = true;
+                constraints.audio.googHighpassFilter = true;
+            }
+            
             this.audio.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
             
             this.log('Microphone access granted', {
