@@ -104,6 +104,7 @@
         window.debugMessages = [];
         window.globalError = null;
         window.initializationStatus = 'starting';
+        window.globalPocAudioContext = null; // Global AudioContext for PoC
 
         function debugLog(message, isError = false, data = null) {
             const timestamp = new Date().toISOString();
@@ -305,7 +306,13 @@
                 updateStatus('Initializing client...');
                 
                 if (typeof GeminiTelegramClient !== 'undefined') {
-                    window.geminiClient = new GeminiTelegramClient();
+                    // Pass the globalPocAudioContext if it has been initialized and set to running by the PoC button
+                    const clientOptions = {};
+                    if (window.globalPocAudioContext && window.globalPocAudioContext.state === 'running') {
+                        debugLog('Passing pre-resumed globalPocAudioContext to GeminiTelegramClient');
+                        clientOptions.audioContext = window.globalPocAudioContext;
+                    }
+                    window.geminiClient = new GeminiTelegramClient(clientOptions);
                     debugLog('GeminiTelegramClient instance created successfully');
                 } else {
                     throw new Error('GeminiTelegramClient class not available');
@@ -377,50 +384,58 @@
 
         // iOS Audio PoC Test Logic
         const iosAudioPocButton = document.getElementById('iosAudioPocButton');
-        let pocAudioContext;
 
         if (iosAudioPocButton) {
             iosAudioPocButton.addEventListener('click', async () => {
-                debugLog('[iOS PoC] Button clicked. Starting audio test...');
+                debugLog('[iOS PoC] Button clicked. Attempting to initialize/resume globalPocAudioContext...');
 
                 try {
-                    if (!pocAudioContext) {
-                        debugLog('[iOS PoC] Creating AudioContext...');
-                        pocAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        debugLog(`[iOS PoC] AudioContext created. Initial state: ${pocAudioContext.state}`);
+                    if (!window.globalPocAudioContext) {
+                        debugLog('[iOS PoC] Creating globalPocAudioContext...');
+                        window.globalPocAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        debugLog(`[iOS PoC] globalPocAudioContext created. Initial state: ${window.globalPocAudioContext.state}`);
                     } else {
-                        debugLog(`[iOS PoC] AudioContext already exists. State: ${pocAudioContext.state}`);
+                        debugLog(`[iOS PoC] globalPocAudioContext already exists. State: ${window.globalPocAudioContext.state}`);
                     }
 
-                    if (pocAudioContext.state === 'suspended') {
-                        debugLog('[iOS PoC] AudioContext is suspended. Attempting to resume...');
+                    if (window.globalPocAudioContext.state === 'suspended') {
+                        debugLog('[iOS PoC] globalPocAudioContext is suspended. Attempting to resume...');
                         try {
-                            await pocAudioContext.resume();
-                            debugLog(`[iOS PoC] AudioContext.resume() called. New state: ${pocAudioContext.state}`);
+                            await window.globalPocAudioContext.resume();
+                            debugLog(`[iOS PoC] globalPocAudioContext.resume() called. New state: ${window.globalPocAudioContext.state}`);
                         } catch (resumeError) {
-                            debugLog(`[iOS PoC] Error resuming AudioContext: ${resumeError.message}`, true, resumeError);
-                            debugLog(`[iOS PoC] AudioContext state after resume error: ${pocAudioContext.state}`);
+                            debugLog(`[iOS PoC] Error resuming globalPocAudioContext: ${resumeError.message}`, true, resumeError);
+                            debugLog(`[iOS PoC] globalPocAudioContext state after resume error: ${window.globalPocAudioContext.state}`);
                         }
                     }
 
-                    debugLog('[iOS PoC] Attempting to play a silent audio element to unlock...');
-                    const silentAudioPoc = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='); // Tiny silent WAV
-                    silentAudioPoc.volume = 0; 
-
-                    try {
-                        await silentAudioPoc.play();
-                        debugLog('[iOS PoC] Silent audio played successfully.');
-                    } catch (playError) {
-                        debugLog(`[iOS PoC] Error playing silent audio: ${playError.message}`, true, playError);
+                    // Optionally, attempt silent audio play if still suspended, though direct resume should be key
+                    if (window.globalPocAudioContext.state === 'suspended') {
+                        debugLog('[iOS PoC] globalPocAudioContext still suspended after resume attempt. Trying silent audio play...');
+                        const silentAudioPoc = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+                        silentAudioPoc.volume = 0;
+                        try {
+                            await silentAudioPoc.play();
+                            debugLog('[iOS PoC] Silent audio played successfully (after resume attempt).');
+                            // Check state again
+                             debugLog(`[iOS PoC] globalPocAudioContext state after silent play: ${window.globalPocAudioContext.state}`);
+                        } catch (playError) {
+                            debugLog(`[iOS PoC] Error playing silent audio (after resume attempt): ${playError.message}`, true, playError);
+                        }
                     }
                     
-                    debugLog(`[iOS PoC] Final AudioContext state: ${pocAudioContext.state}`);
-                    debugLog('[iOS PoC] Audio test finished.');
+                    debugLog(`[iOS PoC] Final globalPocAudioContext state: ${window.globalPocAudioContext.state}`);
+                    if (window.globalPocAudioContext.state === 'running') {
+                        debugLog('[iOS PoC] globalPocAudioContext is RUNNING. Main app can now try to use it.');
+                        // Potentially re-initialize client or parts of it if needed, or notify it.
+                        // For now, we rely on initializeApp passing it if it's running.
+                    }
+                    debugLog('[iOS PoC] Test finished.');
 
                 } catch (error) {
-                    debugLog(`[iOS PoC] General error during audio test: ${error.message}`, true, error);
-                    if (pocAudioContext) {
-                        debugLog(`[iOS PoC] AudioContext state during general error: ${pocAudioContext.state}`);
+                    debugLog(`[iOS PoC] General error during PoC test: ${error.message}`, true, error);
+                    if (window.globalPocAudioContext) {
+                        debugLog(`[iOS PoC] globalPocAudioContext state during general error: ${window.globalPocAudioContext.state}`);
                     }
                 }
             });

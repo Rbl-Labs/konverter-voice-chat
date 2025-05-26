@@ -1,6 +1,6 @@
 /**
  * Enhanced Telegram Audio Bridge with improved mobile compatibility
- * Version: 3.0.0
+ * Version: 3.0.1 (Patched for external AudioContext)
  * 
  * This module handles audio recording and playback in the Telegram WebApp environment,
  * with special optimizations for mobile devices and permission handling.
@@ -8,7 +8,10 @@
 
 class TelegramAudioBridge {
     constructor(options = {}) {
-        console.log('🔄 [AudioBridge] TelegramAudioBridge v3.0 constructor called');
+        console.log('🔄 [AudioBridge] TelegramAudioBridge v3.0.1 constructor called with options:', options);
+        
+        // Store options
+        this.options = options; 
         
         // Configuration
         this.config = {
@@ -44,7 +47,15 @@ class TelegramAudioBridge {
         // Audio components
         this.stream = null;
         this.mediaRecorder = null;
-        this.audioContext = null;
+        
+        // Use provided audioContext if available and valid, otherwise null
+        this.audioContext = (options.audioContext && options.audioContext.state === 'running') ? options.audioContext : null;
+        if (this.audioContext) {
+            this.log(`Constructor: Using provided AudioContext in '${this.audioContext.state}' state.`);
+        } else {
+            this.log('Constructor: No valid pre-existing AudioContext provided or it was not running. Will create one if needed.');
+        }
+        
         this.analyser = null;
         this.dataArray = null;
         this.audioChunks = [];
@@ -58,7 +69,7 @@ class TelegramAudioBridge {
         
         // Mobile detection
         this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        this.audioUnlocked = false;
+        this.audioUnlocked = !!(this.audioContext && this.audioContext.state === 'running'); // If context is running, assume unlocked
         
         // Audio player for playback
         this.liveAudioPlayer = new LiveAudioPlayer();
@@ -77,8 +88,14 @@ class TelegramAudioBridge {
      * @returns {Promise<boolean>} Whether initialization was successful
      */
     async initialize() {
-        if (this.state.initializing) return false;
-        if (this.state.initialized) return true;
+        if (this.state.initializing) {
+            this.log('Initialization already in progress.');
+            return false;
+        }
+        if (this.state.initialized) {
+            this.log('Already initialized.');
+            return true;
+        }
         
         this.state.initializing = true;
         this.state.initializationAttempts++;
@@ -90,99 +107,126 @@ class TelegramAudioBridge {
                 throw new Error('Maximum initialization attempts exceeded');
             }
             
-            // CRITICAL FIX: First unlock audio on mobile before anything else
+            // Handle AudioContext
+            if (this.audioContext && this.audioContext.state === 'running') {
+                this.log('Using pre-existing and running AudioContext.');
+                this.audioUnlocked = true; // Mark as unlocked if context is running
+            } else {
+                this.log('No pre-existing running AudioContext. Attempting to create/resume.');
+                if (this.audioContext && this.audioContext.state === 'closed') {
+                    this.log('Provided AudioContext was closed, creating a new one.');
+                    this.audioContext = null; // Force creation of a new one
+                }
+                if (!this.audioContext) {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.log(`Created new AudioContext. Initial state: ${this.audioContext.state}`);
+                }
+
+                if (this.audioContext.state === 'suspended') {
+                    this.log('AudioContext is suspended. Attempting to resume...');
+                    try {
+                        await this.audioContext.resume();
+                        this.log(`AudioContext resumed. State: ${this.audioContext.state}`);
+                        if (this.audioContext.state === 'running') {
+                            this.audioUnlocked = true;
+                        }
+                    } catch (error) {
+                        this.log(`Failed to resume AudioContext: ${error.message}`, true);
+                        // This is a critical failure point if it's still suspended after user gesture
+                    }
+                } else if (this.audioContext.state === 'running') {
+                     this.log('AudioContext is already running.');
+                     this.audioUnlocked = true;
+                }
+            }
+
+            // If after all attempts, context is not running, this is an issue.
+            if (!this.audioContext || this.audioContext.state !== 'running') {
+                 this.log('AudioContext is not in a running state after initialization attempts.', true);
+                 // Do not throw error yet, let permission check proceed, but this is a bad sign.
+            }
+            
+            // CRITICAL FIX: Unlock audio on mobile if not already unlocked by a running context
             if (this.isMobile && !this.audioUnlocked) {
-                this.log('CRITICAL: Attempting to unlock audio on mobile FIRST...');
+                this.log('CRITICAL: Attempting to unlock audio on mobile (AudioContext not running or unlock flag false)...');
                 try {
-                    // Method 1: Try with a silent audio element
                     const audio = new Audio();
                     audio.volume = 0;
-                    audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='; // Tiny silent WAV
-                    
+                    audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='; 
                     const playPromise = audio.play();
                     if (playPromise !== undefined) {
                         await playPromise;
                         audio.pause();
                         audio.currentTime = 0;
-                        this.audioUnlocked = true;
-                        this.log('✅ Mobile audio unlocked successfully (Direct Method)');
+                        this.audioUnlocked = true; // Set flag
+                        this.log('✅ Mobile audio unlocked successfully (Direct Method during init)');
+                        // If context exists and is suspended, try to resume again now that we've played audio
+                        if (this.audioContext && this.audioContext.state === 'suspended') {
+                            this.log('Attempting to resume AudioContext again after silent play...');
+                            await this.audioContext.resume();
+                            this.log(`AudioContext state after silent play resume: ${this.audioContext.state}`);
+                        }
                     }
                 } catch (error) {
-                    this.log(`⚠️ Direct audio unlock failed: ${error.message}`, true);
+                    this.log(`⚠️ Direct audio unlock during init failed: ${error.message}`, true);
                 }
             }
             
-            // Create audio context for visualization
-            if (!this.audioContext || this.audioContext.state === 'closed') {
-                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
-                if (this.audioContext.state === 'suspended') {
-                    try {
-                        await this.audioContext.resume();
-                        this.log('Audio context resumed during creation', { state: this.audioContext.state, sampleRate: this.audioContext.sampleRate });
-                    } catch (error) {
-                        this.log(`Failed to resume audio context: ${error.message}`, true);
-                        // Continue anyway, we'll try again later
-                    }
-                } else {
-                    this.log('Audio context created successfully', { state: this.audioContext.state, sampleRate: this.audioContext.sampleRate });
-                }
-            }
-            
-            // Check and request microphone permission
             const permissionGranted = await this.requestMicrophonePermission();
             if (!permissionGranted) {
                 throw new Error('Microphone permission denied');
             }
             
-            // Try unlocking audio again with LiveAudioPlayer if needed
-            if (this.isMobile && !this.audioUnlocked) {
-                this.log('Attempting to unlock audio via LiveAudioPlayer...');
-                const unlocked = await this.liveAudioPlayer.unlockAudio();
-                if (unlocked) {
+            // Try unlocking audio again with LiveAudioPlayer if still not unlocked
+            if (this.isMobile && !this.audioUnlocked && (!this.audioContext || this.audioContext.state !== 'running')) {
+                this.log('Attempting to unlock audio via LiveAudioPlayer (fallback)...');
+                const unlockedByPlayer = await this.liveAudioPlayer.unlockAudio();
+                if (unlockedByPlayer) {
                     this.audioUnlocked = true;
                     this.log('Audio unlocked successfully via LiveAudioPlayer');
+                     if (this.audioContext && this.audioContext.state === 'suspended') {
+                        this.log('Attempting to resume AudioContext again after LiveAudioPlayer unlock...');
+                        await this.audioContext.resume();
+                        this.log(`AudioContext state after LiveAudioPlayer unlock resume: ${this.audioContext.state}`);
+                    }
                 } else {
                     this.log('Failed to unlock audio on mobile via LiveAudioPlayer');
-                    // Continue anyway, we'll try again when recording starts
                 }
+            }
+
+            // Final check for AudioContext state
+            if (!this.audioContext || this.audioContext.state !== 'running') {
+                this.log('Critical: AudioContext is NOT RUNNING after all initialization and unlock attempts.', true);
+                // Not throwing error here to allow UI to show message, but recording will likely fail.
+            } else {
+                 this.log('AudioContext is RUNNING. Initialization seems successful.');
             }
             
             this.state.initialized = true;
-            this.state.initializing = false;
             return true;
             
         } catch (error) {
             this.log(`Initialization failed: ${error.message}`, true);
-            this.state.initializing = false;
-            
             if (this.callbacks.onError) {
                 this.callbacks.onError(error);
             }
-            
             return false;
+        } finally {
+            this.state.initializing = false;
         }
     }
     
-    /**
-     * Set up Telegram-specific optimizations
-     */
     setupTelegramOptimizations() {
         if (this.telegramWebApp) {
             try {
                 this.telegramWebApp.ready();
                 this.telegramWebApp.expand();
                 this.log('Telegram WebApp optimizations enabled (ready, expand)');
-                
-                // Handle viewport changes
                 this.telegramWebApp.onEvent('viewportChanged', (eventData) => {
                     if (eventData.isStateStable) {
-                        const width = window.innerWidth;
-                        const height = this.telegramWebApp.viewportStableHeight;
-                        this.log(`Telegram viewport changed: ${width}x${height}`);
+                        this.log(`Telegram viewport changed: ${window.innerWidth}x${this.telegramWebApp.viewportStableHeight}`);
                     }
                 });
-                
             } catch (error) {
                 this.log(`Error setting up Telegram WebApp features: ${error.message}`, true);
             }
@@ -191,9 +235,6 @@ class TelegramAudioBridge {
         }
     }
     
-    /**
-     * Check current microphone permission state
-     */
     async checkMicrophonePermission() {
         try {
             if (!navigator.permissions || !navigator.permissions.query) {
@@ -201,344 +242,219 @@ class TelegramAudioBridge {
                 this.updatePermissionState('prompt');
                 return;
             }
-            
             const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
             this.updatePermissionState(permissionStatus.state);
-            
-            permissionStatus.onchange = () => {
-                this.updatePermissionState(permissionStatus.state);
-            };
-            
+            permissionStatus.onchange = () => this.updatePermissionState(permissionStatus.state);
         } catch (error) {
             this.log(`Error checking microphone permission: ${error.message}`, true);
-            this.updatePermissionState('prompt'); // Assume prompt if we can't check
+            this.updatePermissionState('prompt');
         }
     }
     
-    /**
-     * Update permission state and trigger callback
-     * @param {string} state - Permission state ('granted', 'denied', 'prompt')
-     */
     updatePermissionState(state) {
         this.state.permissionState = state;
         this.log(`Current microphone permission state: ${state}`);
-        
-        if (this.callbacks.onPermissionChange) {
-            this.callbacks.onPermissionChange(state);
-        }
+        if (this.callbacks.onPermissionChange) this.callbacks.onPermissionChange(state);
     }
     
-    /**
-     * Request microphone permission
-     * @returns {Promise<boolean>} Whether permission was granted
-     */
     async requestMicrophonePermission() {
         this.log('Explicitly requesting microphone permission...');
-        
         try {
-            // First try Telegram's API if available
-            if (this.telegramWebApp && this.telegramWebApp.requestMicrophone) {
-                this.log('Using Telegram.WebApp.requestMicrophone for permissions');
-                try {
-                    await this.telegramWebApp.requestMicrophone();
-                    this.log('Telegram microphone permission granted');
-                    this.updatePermissionState('granted');
-                    return true;
-                } catch (error) {
-                    this.log(`Telegram microphone permission error: ${error.message}`, true);
-                    // Fall back to standard API
-                }
+            if (this.telegramWebApp && this.telegramWebApp.requestMicrophoneAccess) { // Updated API name
+                this.log('Using Telegram.WebApp.requestMicrophoneAccess for permissions');
+                return new Promise((resolve) => {
+                    this.telegramWebApp.requestMicrophoneAccess((granted) => {
+                        if (granted) {
+                            this.log('Telegram microphone permission granted');
+                            this.updatePermissionState('granted');
+                            resolve(true);
+                        } else {
+                            this.log('Telegram microphone permission denied', true);
+                            this.updatePermissionState('denied');
+                            resolve(false);
+                        }
+                    });
+                });
             }
             
-            // Standard browser API
             this.log('Using navigator.mediaDevices.getUserMedia for permissions');
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: { 
-                    channelCount: 1, 
-                    sampleRate: 16000, 
-                    echoCancellation: true, 
-                    noiseSuppression: true, 
-                    autoGainControl: true 
-                } 
-            });
-            
-            this.log('Microphone access granted', { 
-                tracks: stream.getAudioTracks().length,
-                settings: stream.getAudioTracks()[0]?.getSettings()
-            });
-            
-            // Stop the stream since we're just checking permission
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+            this.log('Microphone access granted via getUserMedia');
             stream.getTracks().forEach(track => track.stop());
-            
             this.updatePermissionState('granted');
             
-            // Unlock audio on mobile
-            if (this.isMobile && !this.audioUnlocked) {
-                this.log('Attempting to unlock audio on mobile...');
-                const unlocked = await this.liveAudioPlayer.unlockAudio();
+            if (this.isMobile && !this.audioUnlocked && (!this.audioContext || this.audioContext.state !== 'running')) {
+                this.log('Attempting to unlock audio on mobile after getUserMedia grant...');
+                const unlocked = await this.liveAudioPlayer.unlockAudio(); // unlockAudio now part of LiveAudioPlayer
                 if (unlocked) {
                     this.audioUnlocked = true;
-                    this.log('Audio unlocked successfully');
+                    this.log('Audio unlocked successfully after getUserMedia');
                 }
             }
-            
             return true;
-            
         } catch (error) {
             this.log(`Microphone permission error: ${error.message}`, true);
             this.updatePermissionState('denied');
-            
-            if (this.callbacks.onError) {
-                this.callbacks.onError(new Error(`Microphone access denied: ${error.message}`));
-            }
-            
+            if (this.callbacks.onError) this.callbacks.onError(new Error(`Microphone access denied: ${error.message}`));
             return false;
         }
     }
     
-    /**
-     * Start recording audio
-     * @returns {Promise<boolean>} Whether recording started successfully
-     */
     async startRecording() {
         if (this.state.isRecording) return true;
         
         try {
-            // Make sure we're initialized
             if (!this.state.initialized) {
                 this.log('Audio bridge not initialized, initializing now...');
                 const initialized = await this.initialize();
-                if (!initialized) {
-                    throw new Error('Audio bridge initialization failed');
+                if (!initialized) throw new Error('Audio bridge initialization failed prior to recording');
+            }
+
+            if (!this.audioContext || this.audioContext.state !== 'running') {
+                this.log('AudioContext is not running. Attempting to resume/unlock before recording.', true);
+                // Try to resume if suspended
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    try {
+                        await this.audioContext.resume();
+                        this.log(`AudioContext resumed before recording. New state: ${this.audioContext.state}`);
+                    } catch (e) {
+                        this.log(`Failed to resume AudioContext before recording: ${e.message}`, true);
+                    }
+                }
+                // Try silent audio play if still not running (especially for mobile)
+                if (this.isMobile && (!this.audioContext || this.audioContext.state !== 'running')) {
+                     this.log('Attempting silent audio play to unlock before recording...');
+                     const silentAudio = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+                     silentAudio.volume = 0;
+                     try {
+                         await silentAudio.play();
+                         this.log('Silent audio played before recording.');
+                         if (this.audioContext && this.audioContext.state === 'suspended') await this.audioContext.resume(); // Try resume again
+                     } catch (e) {
+                         this.log(`Silent audio play failed before recording: ${e.message}`, true);
+                     }
+                }
+                if (!this.audioContext || this.audioContext.state !== 'running') {
+                    throw new Error(`AudioContext not running. State: ${this.audioContext?.state}. Cannot start recording.`);
                 }
             }
             
-            // CRITICAL FIX: For mobile, try to unlock audio again if needed
-            if (this.isMobile && !this.audioUnlocked) {
-                this.log('CRITICAL: Mobile audio not yet unlocked, attempting again before recording...');
-                try {
-                    // Direct unlock attempt
-                    const audio = new Audio();
-                    audio.volume = 0;
-                    audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-                    await audio.play();
-                    audio.pause();
-                    this.audioUnlocked = true;
-                    this.log('✅ Mobile audio unlocked successfully during recording start');
-                } catch (error) {
-                    this.log(`⚠️ Mobile audio unlock attempt failed: ${error.message}`, true);
-                    // Continue anyway, getUserMedia might still work
-                }
-            }
-            
-            // Make sure AudioContext is resumed
-            if (this.audioContext && this.audioContext.state === 'suspended') {
-                try {
-                    await this.audioContext.resume();
-                    this.log('Audio context resumed before recording');
-                } catch (error) {
-                    this.log(`Failed to resume audio context: ${error.message}`, true);
-                    // Continue anyway
-                }
-            }
-            
-            // Request microphone access with robust error handling
             this.log('Requesting microphone access for recording...');
             let stream;
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { 
-                        channelCount: 1, 
-                        sampleRate: 16000, 
-                        echoCancellation: true, 
-                        noiseSuppression: true, 
-                        autoGainControl: true 
-                    } 
-                });
+                stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
             } catch (error) {
-                // Special handling for common permission errors
-                if (error.name === 'NotAllowedError') {
-                    throw new Error('Microphone permission denied by user. Please check browser settings.');
-                } else if (error.name === 'NotFoundError') {
-                    throw new Error('No microphone found. Please connect a microphone and try again.');
-                } else {
-                    throw new Error(`Microphone access error: ${error.message}`);
-                }
+                if (error.name === 'NotAllowedError') throw new Error('Microphone permission denied by user.');
+                else if (error.name === 'NotFoundError') throw new Error('No microphone found.');
+                else throw new Error(`Microphone access error: ${error.message}`);
             }
             
             this.stream = stream;
-            this.log('Microphone access granted successfully', { 
-                tracks: stream.getAudioTracks().length,
-                settings: stream.getAudioTracks()[0]?.getSettings()
-            });
+            this.log('Microphone access granted successfully for recording');
             
-            // Set up analyzer for VAD
-            if (!this.analyser && this.audioContext) {
-                this.analyser = this.audioContext.createAnalyser();
-                const source = this.audioContext.createMediaStreamSource(stream);
+            if (this.audioContext && this.audioContext.state === 'running') {
+                if (!this.analyser) { // Initialize analyser if not already
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.analyser.fftSize = 256;
+                    const bufferLength = this.analyser.frequencyBinCount;
+                    this.dataArray = new Uint8Array(bufferLength);
+                    this.log('Audio analyzer components created.');
+                }
+                // Connect stream to analyser
+                const source = this.audioContext.createMediaStreamSource(this.stream);
                 source.connect(this.analyser);
-                this.analyser.fftSize = 256;
-                const bufferLength = this.analyser.frequencyBinCount;
-                this.dataArray = new Uint8Array(bufferLength);
-                this.log('Audio analyzer set up successfully');
+                this.log('Audio analyzer source connected.');
+            } else {
+                this.log('AudioContext not running, VAD will not function.', true);
             }
             
-            // Set up media recorder with error handling
-            try {
-                this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: 'audio/webm;codecs=opus' });
-            } catch (error) {
-                throw new Error(`Failed to create MediaRecorder: ${error.message}`);
-            }
-            
+            this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: 'audio/webm;codecs=opus' });
             this.audioChunks = [];
-            
             this.mediaRecorder.ondataavailable = async (event) => {
                 if (event.data.size > 0) {
-                    try {
-                        const audioBuffer = await event.data.arrayBuffer();
-                        const base64Audio = this.arrayBufferToBase64(audioBuffer);
-                        
-                        if (this.callbacks.onAudioData) {
-                            this.callbacks.onAudioData(base64Audio, false);
-                        }
-                    } catch (error) {
-                        this.log(`Error processing audio data: ${error.message}`, true);
-                    }
+                    const audioBuffer = await event.data.arrayBuffer();
+                    if (this.callbacks.onAudioData) this.callbacks.onAudioData(this.arrayBufferToBase64(audioBuffer), false);
                 }
             };
-            
             this.mediaRecorder.onstart = () => {
                 this.state.isRecording = true;
                 this.log('MediaRecorder started successfully');
-                
-                if (this.callbacks.onAudioStart) {
-                    this.callbacks.onAudioStart();
-                }
-                
-                // Provide haptic feedback if available
-                if (this.hapticFeedback) {
-                    try {
-                        this.hapticFeedback.impactOccurred('light');
-                    } catch (e) {
-                        this.log(`Haptic feedback error: ${e.message}`, true);
-                    }
-                }
+                if (this.callbacks.onAudioStart) this.callbacks.onAudioStart();
+                if (this.hapticFeedback) try { this.hapticFeedback.impactOccurred('light'); } catch (e) { this.log(`Haptic feedback error: ${e.message}`, true); }
             };
-            
             this.mediaRecorder.onstop = () => {
                 this.state.isRecording = false;
                 this.log('MediaRecorder stopped');
-                
-                if (this.callbacks.onAudioEnd) {
-                    this.callbacks.onAudioEnd();
-                }
+                if (this.callbacks.onAudioEnd) this.callbacks.onAudioEnd();
             };
-            
             this.mediaRecorder.onerror = (event) => {
                 this.log(`MediaRecorder error: ${event.error}`, true);
-                
-                if (this.callbacks.onError) {
-                    this.callbacks.onError(new Error(`MediaRecorder error: ${event.error}`));
-                }
+                if (this.callbacks.onError) this.callbacks.onError(new Error(`MediaRecorder error: ${event.error}`));
             };
             
-            // Start recording
-            this.log('Starting MediaRecorder...');
             this.mediaRecorder.start(500);
             this.startVADMonitoring();
             this.log('Recording started successfully');
-            
             return true;
-            
         } catch (error) {
             this.log(`Error starting recording: ${error.message}`, true);
-            
-            if (this.callbacks.onError) {
-                this.callbacks.onError(error);
-            }
-            
+            if (this.callbacks.onError) this.callbacks.onError(error);
             return false;
         }
     }
     
-    /**
-     * Stop recording audio
-     * @returns {Promise<boolean>} Whether recording stopped successfully
-     */
     async stopRecording() {
         if (!this.state.isRecording) return true;
-        
         try {
             this.stopVADMonitoring();
-            
             if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
                 this.mediaRecorder.stop();
             }
-            
-            // Send end-of-speech signal
-            if (this.callbacks.onAudioData) {
-                this.callbacks.onAudioData(null, true);
-            }
-            
-            // Clean up
+            if (this.callbacks.onAudioData) this.callbacks.onAudioData(null, true); // End of speech
             if (this.stream) {
                 this.stream.getTracks().forEach(track => track.stop());
                 this.stream = null;
             }
-            
+            // Attempt to disconnect analyser source if it exists and audioContext is valid
+            if (this.analyser && this.analyser.numberOfInputs > 0) {
+                 // This is tricky as MediaStreamSourceNode doesn't have a direct disconnect without reference
+                 // For simplicity, we often rely on the stream stopping or context closing.
+                 // If issues arise, a more robust disconnect for the analyser source might be needed.
+                 this.log('Analyser source will be disconnected when stream stops or context closes.');
+            }
             return true;
-            
         } catch (error) {
             this.log(`Error stopping recording: ${error.message}`, true);
-            
-            if (this.callbacks.onError) {
-                this.callbacks.onError(error);
-            }
-            
+            if (this.callbacks.onError) this.callbacks.onError(error);
             return false;
         }
     }
     
-    /**
-     * Start VAD monitoring
-     */
     startVADMonitoring() {
         this.stopVADMonitoring();
         this.vad.silenceStartTime = 0;
         this.vad.currentEnergy = 0.0;
-        
         if (!this.analyser) {
             this.log('VAD: Analyser not ready', true);
             return;
         }
-        
         this.log(`VAD: Starting. Threshold: ${this.config.vadSilenceThreshold}, Duration: ${this.config.vadRequiredSilenceDuration}ms`);
         this.vad.monitoringInterval = setInterval(() => this.checkVAD(), 100);
     }
     
-    /**
-     * Check VAD for silence
-     */
     checkVAD() {
         if (!this.state.isRecording || !this.analyser || !this.dataArray) return;
-        
         this.analyser.getByteFrequencyData(this.dataArray);
         let sum = 0;
         for (let i = 0; i < this.dataArray.length; i++) sum += this.dataArray[i];
         const average = this.dataArray.length > 0 ? sum / this.dataArray.length : 0;
         const normalizedEnergy = average / 255;
-        this.vad.currentEnergy = (this.vad.currentEnergy * (1 - this.config.vadEnergySmoothing)) + 
-                                (normalizedEnergy * this.config.vadEnergySmoothing);
-        
+        this.vad.currentEnergy = (this.vad.currentEnergy * (1 - this.config.vadEnergySmoothing)) + (normalizedEnergy * this.config.vadEnergySmoothing);
         if (this.vad.currentEnergy < this.config.vadSilenceThreshold) {
             if (this.vad.silenceStartTime === 0) this.vad.silenceStartTime = Date.now();
             if ((Date.now() - this.vad.silenceStartTime) >= this.config.vadRequiredSilenceDuration) {
                 this.log(`VAD: End of speech detected. Silence: ${Date.now() - this.vad.silenceStartTime}ms`);
-                
-                if (this.callbacks.onVADSilenceDetected) {
-                    this.callbacks.onVADSilenceDetected();
-                }
-                
+                if (this.callbacks.onVADSilenceDetected) this.callbacks.onVADSilenceDetected();
                 this.stopRecording();
             }
         } else {
@@ -546,9 +462,6 @@ class TelegramAudioBridge {
         }
     }
     
-    /**
-     * Stop VAD monitoring
-     */
     stopVADMonitoring() {
         if (this.vad.monitoringInterval) {
             clearInterval(this.vad.monitoringInterval);
@@ -557,113 +470,58 @@ class TelegramAudioBridge {
         }
     }
     
-    /**
-     * Play audio data
-     * @param {string} audioData - Base64 encoded audio data
-     * @param {string} mimeType - MIME type of the audio data
-     */
     playAudio(audioData, mimeType) {
         try {
-            if (!audioData) {
-                this.log('No audio data to play', true);
-                return;
-            }
-            
-            // Provide haptic feedback if available
-            if (this.hapticFeedback && !this.state.isPlaying) {
-                try {
-                    this.hapticFeedback.impactOccurred('light');
-                } catch (e) {
-                    this.log(`Haptic feedback error: ${e.message}`, true);
-                }
-            }
-            
+            if (!audioData) { this.log('No audio data to play', true); return; }
+            if (this.hapticFeedback && !this.state.isPlaying) try { this.hapticFeedback.impactOccurred('light'); } catch (e) { this.log(`Haptic feedback error: ${e.message}`, true); }
             this.state.isPlaying = true;
-            
-            if (this.callbacks.onPlaybackStart) {
-                this.callbacks.onPlaybackStart();
-            }
-            
-            // Play audio using LiveAudioPlayer
+            if (this.callbacks.onPlaybackStart) this.callbacks.onPlaybackStart();
             this.liveAudioPlayer.playChunk(audioData, mimeType, () => {
                 this.state.isPlaying = false;
-                
-                if (this.callbacks.onPlaybackEnd) {
-                    this.callbacks.onPlaybackEnd();
-                }
+                if (this.callbacks.onPlaybackEnd) this.callbacks.onPlaybackEnd();
             });
-            
         } catch (error) {
             this.log(`Error playing audio: ${error.message}`, true);
             this.state.isPlaying = false;
-            
-            if (this.callbacks.onError) {
-                this.callbacks.onError(error);
-            }
+            if (this.callbacks.onError) this.callbacks.onError(error);
         }
     }
     
-    /**
-     * Stop audio playback
-     */
     stopPlayback() {
         this.liveAudioPlayer.stopPlayback();
         this.state.isPlaying = false;
-        
-        if (this.callbacks.onPlaybackEnd) {
-            this.callbacks.onPlaybackEnd();
-        }
+        if (this.callbacks.onPlaybackEnd) this.callbacks.onPlaybackEnd();
     }
     
-    /**
-     * Convert ArrayBuffer to Base64
-     * @param {ArrayBuffer} buffer - ArrayBuffer to convert
-     * @returns {string} Base64 string
-     */
     arrayBufferToBase64(buffer) {
         const bytes = new Uint8Array(buffer);
         let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
+        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
         return window.btoa(binary);
     }
     
-    /**
-     * Log message to console
-     * @param {string} message - Message to log
-     * @param {boolean} isError - Whether this is an error message
-     */
     log(message, isError = false) {
         if (!this.config.debug) return;
-        
         const prefix = '[AudioBridge]';
-        if (isError) {
-            console.error(`${prefix} ${message}`);
-        } else {
-            console.log(`${prefix} ${message}`);
-        }
+        if (isError) console.error(`${prefix} ${message}`);
+        else console.log(`${prefix} ${message}`);
     }
     
-    /**
-     * Clean up resources
-     */
     dispose() {
+        this.log('Audio bridge disposing...');
         this.stopRecording();
         this.stopPlayback();
         this.stopVADMonitoring();
-        
-        if (this.audioContext && this.audioContext.state !== 'closed') {
+        if (this.audioContext && this.audioContext.state !== 'closed' && !this.options.audioContext) { // Only close if not externally provided
             this.audioContext.close().catch(e => this.log(`Error closing audio context: ${e.message}`, true));
+            this.log('Internally created AudioContext closed.');
+        } else if (this.options.audioContext) {
+            this.log('External AudioContext will not be closed by AudioBridge.');
         }
-        
         this.log('Audio bridge disposed');
     }
 }
 
-/**
- * Live Audio Player for handling audio playback
- */
 class LiveAudioPlayer {
     constructor() {
         this.audioQueue = [];
@@ -671,290 +529,111 @@ class LiveAudioPlayer {
         this.currentAudio = null;
         this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         this.audioPool = [];
-        this.audioContextForUnlock = null;
-        
         this.setupMobileOptimizations();
     }
     
-    /**
-     * Set up mobile optimizations
-     */
     setupMobileOptimizations() {
-        // Pre-create Audio objects for mobile to reduce latency
         for (let i = 0; i < 3; i++) {
             const audio = new Audio();
             audio.preload = 'auto';
-            if (this.isMobile) {
-                audio.crossOrigin = 'anonymous';
-            }
+            if (this.isMobile) audio.crossOrigin = 'anonymous';
             this.audioPool.push(audio);
         }
     }
     
-    /**
-     * Unlock audio on mobile devices
-     * @returns {Promise<boolean>} Whether audio was unlocked successfully
-     */
-    async unlockAudio() {
-        if (this.isMobile) {
-            console.log('[LiveAudioPlayer] 🔓 Attempting to unlock mobile audio...');
-            
-            try {
-                // Method 1: Try with a silent audio element
-                const audio = new Audio();
-                audio.volume = 0;
-                audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='; // Tiny silent WAV
-                
-                const playPromise = audio.play();
-                if (playPromise !== undefined) {
-                    await playPromise;
-                    audio.pause();
-                    audio.currentTime = 0;
-                    console.log('[LiveAudioPlayer] ✅ Mobile audio unlocked successfully (Method 1)');
-                    return true;
-                }
-            } catch (error) {
-                console.warn('[LiveAudioPlayer] ⚠️ Method 1 failed:', error.message);
-            }
-            
-            try {
-                // Method 2: Try with blob URL and a pooled audio element
-                const audioBuffer = new ArrayBuffer(44);
-                const view = new DataView(audioBuffer);
-                // Create minimal WAV header
-                const writeString = (offset, string) => {
-                    for (let i = 0; i < string.length; i++) {
-                        view.setUint8(offset + i, string.charCodeAt(i));
-                    }
-                };
-                writeString(0, 'RIFF');
-                view.setUint32(4, 36, true); // ChunkSize
-                writeString(8, 'WAVE');
-                writeString(12, 'fmt '); // Subchunk1ID
-                view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-                view.setUint16(20, 1, true);  // AudioFormat (1 for PCM)
-                view.setUint16(22, 1, true);  // NumChannels (mono)
-                view.setUint32(24, 8000, true); // SampleRate (e.g., 8kHz, can be anything valid)
-                view.setUint32(28, 16000, true); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
-                view.setUint16(32, 2, true);  // BlockAlign (NumChannels * BitsPerSample/8)
-                view.setUint16(34, 16, true); // BitsPerSample
-                writeString(36, 'data');      // Subchunk2ID
-                view.setUint32(40, 0, true);  // Subchunk2Size (0 for no actual data)
-                
-                const blob = new Blob([audioBuffer], { type: 'audio/wav' });
-                const url = URL.createObjectURL(blob);
-                
-                const audio2 = this.getAudioFromPool();
-                audio2.volume = 0;
-                audio2.src = url;
-                
-                await audio2.play();
-                audio2.pause();
-                audio2.currentTime = 0;
-                URL.revokeObjectURL(url);
-                this.returnAudioToPool(audio2);
-                
-                console.log('[LiveAudioPlayer] ✅ Mobile audio unlocked with method 2');
-                return true;
-                
-            } catch (error) {
-                console.warn('[LiveAudioPlayer] ⚠️ Method 2 failed:', error.message);
-            }
-            
-            console.warn('[LiveAudioPlayer] ❌ All unlock methods failed');
+    async unlockAudio() { // This method is crucial for iOS
+        if (!this.isMobile) {
+            console.log('[LiveAudioPlayer] Desktop - no explicit unlock needed.');
+            return true;
+        }
+        console.log('[LiveAudioPlayer] 🔓 Attempting to unlock mobile audio...');
+        try {
+            const audio = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+            audio.volume = 0;
+            await audio.play();
+            audio.pause();
+            console.log('[LiveAudioPlayer] ✅ Mobile audio unlocked successfully (silent play).');
+            return true;
+        } catch (error) {
+            console.warn('[LiveAudioPlayer] ⚠️ Silent play unlock failed:', error.message);
             return false;
         }
-        
-        console.log('[LiveAudioPlayer] 💻 Desktop - no unlock needed');
-        return true;
     }
     
-    /**
-     * Play an audio chunk
-     * @param {string} base64Audio - Base64 encoded audio data
-     * @param {string} mimeType - MIME type of the audio data
-     * @param {Function} onComplete - Callback when playback is complete
-     */
     playChunk(base64Audio, mimeType, onComplete) {
         try {
-            // Validate chunk size for mobile
-            if (this.isMobile && base64Audio.length > 500000) {
-                console.warn('[LiveAudioPlayer] Large audio chunk on mobile, may cause issues. Size:', base64Audio.length);
-            }
-            
             const audioBuffer = this.base64ToArrayBuffer(base64Audio);
             const blob = new Blob([audioBuffer], { type: mimeType });
             const audioUrl = URL.createObjectURL(blob);
-            
             const audio = this.getAudioFromPool();
-            
-            // Mobile-specific audio settings
-            if (this.isMobile) {
-                audio.volume = 0.9;
-                audio.playsInline = true;
-            } else {
-                audio.volume = 1.0;
-            }
-            
+            audio.volume = this.isMobile ? 0.9 : 1.0;
+            if (this.isMobile) audio.playsInline = true;
             audio.src = audioUrl;
-            
-            this.audioQueue.push({
-                audio: audio,
-                url: audioUrl,
-                onComplete: onComplete
-            });
-            
-            if (!this.isPlaying) {
-                this.processAudioQueue();
-            }
+            this.audioQueue.push({ audio, url: audioUrl, onComplete });
+            if (!this.isPlaying) this.processAudioQueue();
         } catch (error) {
             console.error('[LiveAudioPlayer] Failed to play audio chunk:', error);
             if (onComplete) onComplete();
         }
     }
     
-    /**
-     * Process the audio queue
-     */
     async processAudioQueue() {
-        if (this.audioQueue.length === 0) {
-            this.isPlaying = false;
-            return;
-        }
-        
+        if (this.audioQueue.length === 0) { this.isPlaying = false; return; }
         this.isPlaying = true;
-        const audioItem = this.audioQueue.shift();
-        this.currentAudio = audioItem.audio;
-        let retryCount = 0;
-        const maxRetries = this.isMobile ? 2 : 1;
-        
-        const playWithRetry = async () => {
-            try {
-                await new Promise((resolve, reject) => {
-                    audioItem.audio.onended = () => {
-                        URL.revokeObjectURL(audioItem.url);
-                        this.returnAudioToPool(audioItem.audio);
-                        this.currentAudio = null;
-                        if (audioItem.onComplete) audioItem.onComplete();
-                        resolve();
-                    };
-                    
-                    audioItem.audio.onerror = (e) => {
-                        console.error('[LiveAudioPlayer] Audio error:', e, audioItem.audio.error);
-                        if (retryCount < maxRetries) {
-                            retryCount++;
-                            console.log(`[LiveAudioPlayer] Retrying playback (${retryCount}/${maxRetries})`);
-                            setTimeout(() => playWithRetry().catch(reject), 100);
-                            return;
-                        }
-                        URL.revokeObjectURL(audioItem.url);
-                        this.returnAudioToPool(audioItem.audio);
-                        this.currentAudio = null;
-                        if (audioItem.onComplete) audioItem.onComplete();
-                        reject(new Error('Audio playback failed after retries'));
-                    };
-                    
-                    // Mobile-optimized play
-                    if (this.isMobile) {
-                        setTimeout(() => {
-                            audioItem.audio.play().catch(err => {
-                                console.error('[LiveAudioPlayer] audio.play() rejected (mobile):', err);
-                                if (retryCount >= maxRetries) reject(err);
-                            });
-                        }, 50);
-                    } else {
-                        audioItem.audio.play().catch(err => {
-                            console.error('[LiveAudioPlayer] audio.play() rejected (desktop):', err);
-                            if (retryCount >= maxRetries) reject(err);
-                        });
-                    }
-                });
-                
-                this.processAudioQueue();
-                
-            } catch (error) {
-                console.error('[LiveAudioPlayer] Failed to play audio after retries or critical error:', error);
-                if (audioItem.url) URL.revokeObjectURL(audioItem.url);
-                if (audioItem.audio) this.returnAudioToPool(audioItem.audio);
-                this.currentAudio = null;
-                this.processAudioQueue();
-            }
-        };
-        
-        await playWithRetry();
+        const item = this.audioQueue.shift();
+        this.currentAudio = item.audio;
+        try {
+            await new Promise((resolve, reject) => {
+                item.audio.onended = resolve;
+                item.audio.onerror = (e) => reject(new Error(`Audio playback error: ${e.target.error?.message || 'Unknown error'}`));
+                item.audio.play().catch(reject);
+            });
+        } catch (error) {
+            console.error('[LiveAudioPlayer] Playback error in queue:', error.message);
+        } finally {
+            URL.revokeObjectURL(item.url);
+            this.returnAudioToPool(item.audio);
+            this.currentAudio = null;
+            if (item.onComplete) item.onComplete();
+            this.processAudioQueue(); // Process next
+        }
     }
     
-    /**
-     * Get an audio element from the pool
-     * @returns {HTMLAudioElement} Audio element
-     */
     getAudioFromPool() {
-        if (this.audioPool.length > 0) {
-            return this.audioPool.shift();
-        }
+        if (this.audioPool.length > 0) return this.audioPool.shift();
         const audio = new Audio();
         audio.preload = 'auto';
         if (this.isMobile) audio.crossOrigin = 'anonymous';
         return audio;
     }
     
-    /**
-     * Return an audio element to the pool
-     * @param {HTMLAudioElement} audio - Audio element to return
-     */
     returnAudioToPool(audio) {
-        audio.onended = null;
-        audio.onerror = null;
-        audio.src = '';
-        if (this.audioPool.length < 5) {
-            this.audioPool.push(audio);
-        }
+        audio.onended = null; audio.onerror = null; audio.src = '';
+        if (this.audioPool.length < 5) this.audioPool.push(audio);
     }
     
-    /**
-     * Stop playback
-     */
     stopPlayback() {
         if (this.currentAudio) {
             this.currentAudio.pause();
             this.currentAudio.currentTime = 0;
-            this.returnAudioToPool(this.currentAudio);
-            this.currentAudio = null;
+            // URL is revoked and audio returned to pool in processAudioQueue's finally block
         }
-        
-        // Clear the queue
-        this.audioQueue.forEach(item => {
-            if (item.url) URL.revokeObjectURL(item.url);
+        this.audioQueue.forEach(item => { // Clear pending queue
+            URL.revokeObjectURL(item.url);
             this.returnAudioToPool(item.audio);
             if (item.onComplete) item.onComplete();
         });
-        
         this.audioQueue = [];
         this.isPlaying = false;
     }
     
-    /**
-     * Convert Base64 to ArrayBuffer
-     * @param {string} base64 - Base64 string
-     * @returns {ArrayBuffer} ArrayBuffer
-     */
     base64ToArrayBuffer(base64) {
         const binaryString = window.atob(base64);
         const len = binaryString.length;
         const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
+        for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
         return bytes.buffer;
-    }
-    
-    /**
-     * Finalize the audio stream
-     */
-    finalizeStream() {
-        console.log('[LiveAudioPlayer] Audio stream complete signal received.');
     }
 }
 
-// Export the TelegramAudioBridge class
 window.TelegramAudioBridge = TelegramAudioBridge;

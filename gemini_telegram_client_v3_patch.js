@@ -6,10 +6,11 @@
  */
 
 class GeminiTelegramClient {
-    constructor() {
-        console.log('🔄 [DEBUG] Modern GeminiTelegramClient v3.0.1 (Patched) constructor called');
+    constructor(options = {}) { // Accept options
+        console.log('🔄 [DEBUG] Modern GeminiTelegramClient v3.0.1 (Patched) constructor called with options:', options);
         
         try {
+            this.options = options; // Store options
             this.config = {
                 debug: true,
                 reconnectAttempts: 3,
@@ -74,7 +75,7 @@ class GeminiTelegramClient {
             }
             
             // Initialize audio bridge with error handling
-            this.audioBridge = new TelegramAudioBridge({
+            const audioBridgeOptions = {
                 debug: this.config.debug,
                 vadSilenceThreshold: this.config.vadSilenceThreshold,
                 vadRequiredSilenceDuration: this.config.vadRequiredSilenceDuration,
@@ -86,7 +87,15 @@ class GeminiTelegramClient {
                 onVADSilenceDetected: () => this.handleVADSilenceDetected(),
                 onPermissionChange: (state) => this.handlePermissionChange(state),
                 onError: (error) => this.handleAudioError(error)
-            });
+            };
+
+            // Pass pre-resumed AudioContext if available and running
+            if (this.options.audioContext && this.options.audioContext.state === 'running') {
+                this.log('Passing pre-resumed AudioContext to TelegramAudioBridge');
+                audioBridgeOptions.audioContext = this.options.audioContext;
+            }
+
+            this.audioBridge = new TelegramAudioBridge(audioBridgeOptions);
             
             // Setup UI
             this.setupUI();
