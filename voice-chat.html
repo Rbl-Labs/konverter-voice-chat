@@ -424,12 +424,31 @@
         </div>
     </div>
 
-    <script type="module">
+    <!-- Load TelegramAudioBridge first -->
+    <script type="text/javascript">
         const timestamp = Date.now();
-        const script = document.createElement('script');
-        script.type = 'module';
-        script.src = `gemini_audio_chat_client.js?v=${timestamp}`;
-        document.head.appendChild(script);
+        
+        // Load TelegramAudioBridge
+        const bridgeScript = document.createElement('script');
+        bridgeScript.type = 'text/javascript';
+        bridgeScript.src = `telegram_audio_bridge.js?v=${timestamp}`;
+        document.head.appendChild(bridgeScript);
+        
+        // Load GeminiTelegramClient after bridge is loaded
+        bridgeScript.onload = () => {
+            const clientScript = document.createElement('script');
+            clientScript.type = 'text/javascript';
+            clientScript.src = `gemini_telegram_client.js?v=${timestamp}`;
+            document.head.appendChild(clientScript);
+            console.log('🔄 [VERSION CHECK] Scripts loaded at:', new Date().toISOString());
+        };
+        
+        // Error handling
+        bridgeScript.onerror = (e) => {
+            console.error('Failed to load TelegramAudioBridge:', e);
+            document.getElementById('status').textContent = 'Failed to load audio components';
+            document.getElementById('status').className = 'status error';
+        };
     </script>
 </body>
 </html>
