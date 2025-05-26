@@ -222,7 +222,6 @@ class GeminiTelegramClient {
     handleSessionInitTimeout() {
         this.log('Session initialization timed out', true);
         this.updateStatus('Connection timed out - Tap to retry', 'error');
-        // Also ensure the global error reflects this for the debug panel
         if (typeof window.debugLog === 'function') {
             window.debugLog('[Client] Session initialization timed out', true);
         }
@@ -322,7 +321,7 @@ class GeminiTelegramClient {
                 case 'usage_metadata': 
                     this.log('Received usage_metadata', false, message.usage);
                     break;
-                case 'debug_log': // Handles debug messages from backend
+                case 'debug_log':
                     this.log(`[Backend Debug] ${message.message || ''}`, message.isError, message.data);
                     break;
                 default:
@@ -396,14 +395,13 @@ class GeminiTelegramClient {
             } else {
                 if (!this.audioBridge.state || !this.audioBridge.state.initialized) {
                     this.log('AudioBridge not initialized, attempting to initialize/resume context first...');
-                    // Try to ensure audio context is ready via user gesture path if possible
                     if (typeof this.audioBridge.requestPermissionAndResumeContext === 'function') {
                         const audioReady = await this.audioBridge.requestPermissionAndResumeContext();
                         if (!audioReady) {
                             this.updateStatus('Audio setup failed. Check permissions.', 'error');
                             return;
                         }
-                    } else { // Fallback to old initialize if new method not there (should be)
+                    } else { 
                         const initialized = await this.audioBridge.initialize();
                         if (!initialized) { this.updateStatus('Audio init failed. Check permissions.', 'error'); return; }
                     }
