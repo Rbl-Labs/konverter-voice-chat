@@ -84,6 +84,7 @@
             display: inline-block;
             background: rgba(255, 255, 255, 0.1);
             margin-bottom: 10px;
+            cursor: pointer;
         }
 
         .status.connected {
@@ -271,46 +272,6 @@
             to { transform: scale(1.1); box-shadow: 0 12px 40px rgba(255, 71, 87, 0.5); }
         }
 
-        .mic-button-ring {
-            position: absolute;
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
-            border: 2px solid rgba(91, 66, 243, 0.3);
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 5;
-        }
-
-        .mic-button-ring.outer {
-            width: 120px;
-            height: 120px;
-            border: 1px solid rgba(91, 66, 243, 0.2);
-        }
-
-        .mic-button.recording + .mic-button-ring {
-            border-color: rgba(255, 71, 87, 0.3);
-            animation: ring-pulse 2s ease-in-out infinite;
-        }
-
-        .mic-button.recording + .mic-button-ring + .mic-button-ring.outer {
-            border-color: rgba(255, 71, 87, 0.2);
-            animation: ring-pulse-delay 2s ease-in-out infinite;
-        }
-
-        @keyframes ring-pulse {
-            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
-            50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.5; }
-            100% { transform: translate(-50%, -50%) scale(1); opacity: 0.7; }
-        }
-
-        @keyframes ring-pulse-delay {
-            0% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.3; }
-            100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-        }
-
         .controls {
             display: flex;
             gap: 15px;
@@ -343,24 +304,6 @@
             transform: none;
         }
 
-        .particles {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            z-index: 1;
-            pointer-events: none;
-        }
-
-        .particle {
-            position: absolute;
-            background: rgba(91, 66, 243, 0.2);
-            border-radius: 50%;
-            pointer-events: none;
-        }
-
         .session-info {
             position: absolute;
             bottom: 10px;
@@ -370,21 +313,70 @@
             z-index: 5;
         }
 
-        /* Hidden debug info */
-        .debug-info {
+        /* Debug overlay */
+        .debug-overlay {
             display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 9999;
+            overflow-y: auto;
+        }
+
+        .debug-content {
+            max-height: 80vh;
+            overflow-y: auto;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+
+        .debug-close {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+
+        .initialization-error {
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px;
+            text-align: center;
+        }
+
+        .retry-button {
+            background: #5B42F3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            margin-top: 15px;
+            cursor: pointer;
+            font-size: 16px;
         }
     </style>
 </head>
 <body>
     <div class="chat-container">
-        <div class="particles" id="particles"></div>
-        
         <div class="header">
             <div class="logo">🎙️</div>
             <h1 class="title">Konverter.ai Voice</h1>
             <p class="subtitle">Premium AI voice conversation</p>
-            <div class="status" id="status">Initializing...</div>
+            <div class="status" id="status" onclick="showDebugInfo()">Initializing...</div>
         </div>
         
         <div class="conversation-area">
@@ -405,133 +397,263 @@
                 <button class="mic-button" id="micButton" disabled>
                     🎤
                 </button>
-                <div class="mic-button-ring"></div>
-                <div class="mic-button-ring outer"></div>
             </div>
             
             <div class="controls">
                 <button class="control-btn" id="connectBtn" disabled>Connect</button>
                 <button class="control-btn" id="disconnectBtn" disabled>Disconnect</button>
+                <button class="control-btn" id="debugBtn" onclick="showDebugInfo()">Debug</button>
             </div>
         </div>
         
         <div class="session-info" id="sessionInfo">
             Session: Loading...
         </div>
-        
-        <div class="debug-info" id="debugInfo">
-            Debug info will appear here...
-        </div>
     </div>
 
-    <!-- Debug info display (hidden by default) -->
-    <div id="debug-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: rgba(0,0,0,0.8); color: white; padding: 10px; font-family: monospace; font-size: 12px; max-height: 50vh; overflow-y: auto; z-index: 9999;">
-        <div id="debug-content"></div>
-        <button onclick="document.getElementById('debug-overlay').style.display='none'" style="background: #333; color: white; border: none; padding: 5px 10px; margin-top: 10px;">Close</button>
+    <!-- Debug overlay -->
+    <div class="debug-overlay" id="debugOverlay">
+        <div class="debug-content" id="debugContent"></div>
+        <button class="debug-close" onclick="hideDebugInfo()">Close Debug</button>
     </div>
 
-    <!-- Script loader with enhanced error handling -->
+    <!-- Enhanced initialization script -->
     <script type="text/javascript">
-        // Debug logging function
-        function debugLog(message, isError = false) {
+        // Global debug system
+        window.debugMessages = [];
+        window.globalError = null;
+        window.initializationStatus = 'starting';
+
+        function debugLog(message, isError = false, data = null) {
             const timestamp = new Date().toISOString();
-            const prefix = isError ? '❌ [ERROR]' : '🔄 [DEBUG]';
-            const fullMessage = `${timestamp} ${prefix} ${message}`;
-            console.log(fullMessage);
-            
-            // Add to debug overlay
-            const debugContent = document.getElementById('debug-content');
-            if (debugContent) {
-                const msgElement = document.createElement('div');
-                msgElement.textContent = fullMessage;
-                if (isError) msgElement.style.color = '#ff6b6b';
-                debugContent.appendChild(msgElement);
-            }
-            
-            // Update status if it's an error
-            if (isError) {
-                const statusEl = document.getElementById('status');
-                if (statusEl) {
-                    statusEl.textContent = 'Error: ' + message;
-                    statusEl.className = 'status error';
-                }
-            }
-        }
-        
-        // Show debug overlay on triple tap
-        let tapCount = 0;
-        document.addEventListener('click', () => {
-            tapCount++;
-            if (tapCount === 3) {
-                document.getElementById('debug-overlay').style.display = 'block';
-                tapCount = 0;
-            }
-            setTimeout(() => { tapCount = 0; }, 500);
-        });
-        
-        // Force cache-busting with a unique timestamp
-        const timestamp = Date.now();
-        const buildVersion = '1.0.2'; // Increment this on each deployment
-        const cacheBuster = `${buildVersion}-${timestamp}`;
-        
-        debugLog(`Loading scripts with version: ${cacheBuster}`);
-        
-        // Script loading with retries
-        function loadScript(src, onSuccess, onError, retries = 2) {
-            const script = document.createElement('script');
-            script.type = 'text/javascript';
-            script.src = `${src}?v=${cacheBuster}`;
-            
-            script.onload = onSuccess;
-            
-            script.onerror = (e) => {
-                debugLog(`Failed to load script: ${src}`, true);
-                if (retries > 0) {
-                    debugLog(`Retrying... (${retries} attempts left)`);
-                    setTimeout(() => {
-                        loadScript(src, onSuccess, onError, retries - 1);
-                    }, 1000);
-                } else {
-                    debugLog('All retries failed', true);
-                    if (onError) onError(e);
-                }
+            const logEntry = {
+                timestamp,
+                message,
+                isError,
+                data,
+                level: isError ? 'ERROR' : 'INFO'
             };
             
-            document.head.appendChild(script);
-            return script;
-        }
-        
-        // Load TelegramAudioBridge first
-        debugLog('Loading TelegramAudioBridge...');
-        loadScript('telegram_audio_bridge.js', 
-            // Success callback
-            () => {
-                debugLog('TelegramAudioBridge loaded successfully');
-                
-                // Then load GeminiTelegramClient
-                debugLog('Loading GeminiTelegramClient...');
-                loadScript('gemini_telegram_client.js',
-                    // Success callback
-                    () => {
-                        debugLog('GeminiTelegramClient loaded successfully');
-                        debugLog('All scripts loaded successfully');
-                        debugLog('Using WebRTC-based Telegram audio integration');
-                    },
-                    // Error callback
-                    (e) => {
-                        debugLog('Failed to load GeminiTelegramClient after multiple retries', true);
-                        document.getElementById('status').textContent = 'Failed to load client components';
-                        document.getElementById('status').className = 'status error';
-                    }
-                );
-            },
-            // Error callback
-            (e) => {
-                debugLog('Failed to load TelegramAudioBridge after multiple retries', true);
-                document.getElementById('status').textContent = 'Failed to load audio components';
-                document.getElementById('status').className = 'status error';
+            window.debugMessages.push(logEntry);
+            
+            // Console logging
+            const consoleMessage = `${timestamp} [${logEntry.level}] ${message}`;
+            if (isError) {
+                console.error(consoleMessage, data || '');
+            } else {
+                console.log(consoleMessage, data || '');
             }
-        );
+            
+            // Update debug overlay if open
+            updateDebugOverlay();
+            
+            // Update status for errors
+            if (isError) {
+                window.globalError = message;
+                updateStatus(message, 'error');
+            }
+        }
+
+        function updateStatus(message, type = '') {
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.className = 'status ' + type;
+            }
+        }
+
+        function showDebugInfo() {
+            updateDebugOverlay();
+            document.getElementById('debugOverlay').style.display = 'block';
+        }
+
+        function hideDebugInfo() {
+            document.getElementById('debugOverlay').style.display = 'none';
+        }
+
+        function updateDebugOverlay() {
+            const debugContent = document.getElementById('debugContent');
+            if (!debugContent) return;
+            
+            let html = `<h3>Debug Information</h3>`;
+            html += `<p><strong>Initialization Status:</strong> ${window.initializationStatus}</p>`;
+            html += `<p><strong>Global Error:</strong> ${window.globalError || 'None'}</p>`;
+            html += `<p><strong>Messages Count:</strong> ${window.debugMessages.length}</p>`;
+            html += `<p><strong>URL Parameters:</strong> ${window.location.search}</p>`;
+            html += `<p><strong>User Agent:</strong> ${navigator.userAgent}</p>`;
+            html += `<p><strong>Telegram Available:</strong> ${typeof window.Telegram !== 'undefined'}</p>`;
+            html += `<hr><h4>Recent Messages:</h4>`;
+            
+            // Show last 50 messages
+            const recentMessages = window.debugMessages.slice(-50);
+            recentMessages.forEach(entry => {
+                const color = entry.isError ? '#ff6b6b' : '#ffffff';
+                html += `<div style="color: ${color}; margin-bottom: 5px;">`;
+                html += `<strong>${entry.timestamp.split('T')[1].split('.')[0]}</strong> `;
+                html += `[${entry.level}] ${entry.message}`;
+                if (entry.data) {
+                    html += `<br><code style="font-size: 10px; opacity: 0.8;">${JSON.stringify(entry.data).substring(0, 200)}</code>`;
+                }
+                html += `</div>`;
+            });
+            
+            debugContent.innerHTML = html;
+        }
+
+        function showCriticalError(message, details = null) {
+            const container = document.querySelector('.chat-container');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'initialization-error';
+            errorDiv.innerHTML = `
+                <h3>🚨 Critical Error</h3>
+                <p>${message}</p>
+                ${details ? `<p style="font-size: 12px; opacity: 0.8; margin-top: 10px;">${details}</p>` : ''}
+                <button class="retry-button" onclick="window.location.reload()">Retry</button>
+                <button class="retry-button" onclick="showDebugInfo()" style="background: #333; margin-left: 10px;">Debug Info</button>
+            `;
+            container.prepend(errorDiv);
+        }
+
+        // Enhanced script loading with better error handling
+        async function loadScript(src, timeout = 10000) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                const timeoutId = setTimeout(() => {
+                    script.remove();
+                    reject(new Error(`Script loading timeout: ${src}`));
+                }, timeout);
+
+                script.onload = () => {
+                    clearTimeout(timeoutId);
+                    resolve();
+                };
+
+                script.onerror = (e) => {
+                    clearTimeout(timeoutId);
+                    script.remove();
+                    reject(new Error(`Script loading failed: ${src}`));
+                };
+
+                script.src = `${src}?v=${Date.now()}`;
+                script.type = 'text/javascript';
+                document.head.appendChild(script);
+            });
+        }
+
+        // Main initialization function
+        async function initializeApp() {
+            try {
+                debugLog('Starting app initialization');
+                window.initializationStatus = 'loading_scripts';
+                
+                // Check if we're in Telegram
+                if (typeof window.Telegram === 'undefined') {
+                    debugLog('Warning: Not running in Telegram WebApp context', false, {
+                        userAgent: navigator.userAgent,
+                        location: window.location.href
+                    });
+                }
+
+                // Load TelegramAudioBridge first
+                debugLog('Loading TelegramAudioBridge...');
+                updateStatus('Loading audio components...');
+                
+                try {
+                    await loadScript('./telegram_audio_bridge.js', 15000);
+                    debugLog('TelegramAudioBridge loaded successfully');
+                } catch (error) {
+                    debugLog('Failed to load TelegramAudioBridge', true, error.message);
+                    throw new Error('Audio components failed to load: ' + error.message);
+                }
+
+                // Verify TelegramAudioBridge is available
+                if (typeof TelegramAudioBridge === 'undefined') {
+                    throw new Error('TelegramAudioBridge not defined after loading');
+                }
+
+                // Load GeminiTelegramClient
+                debugLog('Loading GeminiTelegramClient...');
+                updateStatus('Loading client components...');
+                
+                try {
+                    await loadScript('./gemini_telegram_client.js', 15000);
+                    debugLog('GeminiTelegramClient loaded successfully');
+                } catch (error) {
+                    debugLog('Failed to load GeminiTelegramClient', true, error.message);
+                    throw new Error('Client components failed to load: ' + error.message);
+                }
+
+                // Wait a bit for initialization
+                debugLog('Waiting for client initialization...');
+                updateStatus('Initializing client...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Check if client was created
+                if (typeof window.geminiClient === 'undefined') {
+                    throw new Error('GeminiTelegramClient not initialized');
+                }
+
+                window.initializationStatus = 'ready';
+                debugLog('App initialization completed successfully');
+                
+            } catch (error) {
+                window.initializationStatus = 'failed';
+                debugLog('App initialization failed', true, error.message);
+                showCriticalError(
+                    'Failed to initialize the voice chat application',
+                    error.message
+                );
+            }
+        }
+
+        // Start initialization when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+
+        // Generate wave bars
+        function generateWaveBars() {
+            const waveform = document.getElementById('waveform');
+            if (waveform) {
+                waveform.innerHTML = '';
+                for (let i = 0; i < 50; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'wave-bar';
+                    bar.style.height = '10px';
+                    waveform.appendChild(bar);
+                }
+            }
+        }
+
+        // Initialize wave bars immediately
+        generateWaveBars();
+
+        // Global error handler
+        window.addEventListener('error', (e) => {
+            debugLog('Global error caught', true, {
+                message: e.message,
+                filename: e.filename,
+                lineno: e.lineno,
+                colno: e.colno,
+                stack: e.error?.stack
+            });
+        });
+
+        window.addEventListener('unhandledrejection', (e) => {
+            debugLog('Unhandled promise rejection', true, {
+                reason: e.reason,
+                stack: e.reason?.stack
+            });
+        });
+
+        // Export debug functions globally
+        window.debugLog = debugLog;
+        window.showDebugInfo = showDebugInfo;
+        window.hideDebugInfo = hideDebugInfo;
+        
+        debugLog('Debug system initialized');
     </script>
 </body>
 </html>

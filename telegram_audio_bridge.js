@@ -1,16 +1,10 @@
 /**
- * TelegramAudioBridge - A WebRTC-based audio bridge for Telegram Mini Apps
- * 
- * This component provides seamless audio integration between Telegram's WebApp
- * and Gemini Live API, handling audio capture, processing, and playback
- * optimized for mobile devices.
- * 
- * Version: 1.0.0
+ * Enhanced TelegramAudioBridge with improved mobile compatibility and error handling
+ * Version: 2.0.0 
  */
 
 class TelegramAudioBridge {
     constructor(options = {}) {
-        // Configuration
         this.config = {
             debug: options.debug || false,
             audioBufferSize: options.audioBufferSize || 4096,
@@ -23,139 +17,266 @@ class TelegramAudioBridge {
             vadRequiredSilenceDuration: options.vadRequiredSilenceDuration || 1500,
             vadEnergySmoothing: options.vadEnergySmoothing || 0.1,
             hapticFeedbackEnabled: options.hapticFeedbackEnabled !== false,
+            maxRetries: options.maxRetries || 3,
+            retryDelay: options.retryDelay || 1000,
+            audioTimeout: options.audioTimeout || 10000,
             ...options
         };
 
-        // State
-        this.initialized = false;
-        this.isRecording = false;
-        this.isPlaying = false;
-        this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        this.audioUnlocked = false;
-        this.telegramWebApp = window.Telegram?.WebApp;
-        this.hapticFeedback = this.telegramWebApp?.HapticFeedback;
+        // Enhanced state management
+        this.state = {
+            initialized: false,
+            isRecording: false,
+            isPlaying: false,
+            isMobile: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent),
+            audioUnlocked: false,
+            recordingStartTime: null,
+            playbackQueue: [],
+            currentAudio: null,
+            initializationAttempts: 0,
+            maxInitializationAttempts: 3
+        };
+        
+        // Telegram integration
+        this.telegram = {
+            webApp: window.Telegram?.WebApp,
+            hapticFeedback: window.Telegram?.WebApp?.HapticFeedback,
+            isAvailable: typeof window.Telegram !== 'undefined'
+        };
         
         // Audio components
-        this.audioContext = null;
-        this.mediaRecorder = null;
-        this.audioStream = null;
-        this.audioQueue = [];
-        this.audioWorklet = null;
-        this.audioBuffers = [];
-        this.currentAudio = null;
-        this.audioPool = [];
+        this.audio = {
+            context: null,
+            mediaRecorder: null,
+            audioStream: null,
+            audioPool: [],
+            worklet: null,
+            analyser: null,
+            dataArray: null
+        };
         
-        // VAD components
-        this.analyser = null;
-        this.dataArray = null;
-        this.currentEnergy = 0.0;
-        this.silenceStartTime = 0;
-        this.vadMonitoringInterval = null;
+        // VAD (Voice Activity Detection) components
+        this.vad = {
+            currentEnergy: 0.0,
+            silenceStartTime: 0,
+            monitoringInterval: null,
+            isMonitoring: false
+        };
         
-        // Event callbacks
-        this.onAudioStart = options.onAudioStart || (() => {});
-        this.onAudioEnd = options.onAudioEnd || (() => {});
-        this.onAudioData = options.onAudioData || (() => {});
-        this.onPlaybackStart = options.onPlaybackStart || (() => {});
-        this.onPlaybackEnd = options.onPlaybackEnd || (() => {});
-        this.onVADSilenceDetected = options.onVADSilenceDetected || (() => {});
-        this.onError = options.onError || ((error) => console.error('TelegramAudioBridge error:', error));
+        // Event callbacks with error handling
+        this.callbacks = {
+            onAudioStart: this.safeCallback(options.onAudioStart),
+            onAudioEnd: this.safeCallback(options.onAudioEnd),
+            onAudioData: this.safeCallback(options.onAudioData),
+            onPlaybackStart: this.safeCallback(options.onPlaybackStart),
+            onPlaybackEnd: this.safeCallback(options.onPlaybackEnd),
+            onVADSilenceDetected: this.safeCallback(options.onVADSilenceDetected),
+            onError: this.safeCallback(options.onError, (error) => console.error('TelegramAudioBridge error:', error))
+        };
         
-        // Debug logging
-        this.log('TelegramAudioBridge initialized with config:', this.config);
+        this.log('Enhanced TelegramAudioBridge initialized', {
+            mobile: this.state.isMobile,
+            telegramAvailable: this.telegram.isAvailable,
+            config: this.config
+        });
         
-        // Initialize
+        // Setup Telegram optimizations
         this._setupTelegramOptimizations();
+        
+        // Create audio pool
         this._createAudioPool();
+        
+        // Auto-initialize on first user interaction if mobile
+        if (this.state.isMobile) {
+            this._setupAutoInitialization();
+        }
     }
     
-    /**
-     * Initialize the audio context and request necessary permissions
-     * @returns {Promise<boolean>} Whether initialization was successful
-     */
+    safeCallback(callback, defaultCallback = null) {
+        return (...args) => {
+            try {
+                if (typeof callback === 'function') {
+                    return callback(...args);
+                } else if (typeof defaultCallback === 'function') {
+                    return defaultCallback(...args);
+                }
+            } catch (error) {
+                this.log('Callback error:', error, true);
+            }
+        };
+    }
+    
     async initialize() {
-        if (this.initialized) return true;
+        if (this.state.initialized) return true;
+        
+        this.state.initializationAttempts++;
+        
+        if (this.state.initializationAttempts > this.state.maxInitializationAttempts) {
+            const error = new Error('Maximum initialization attempts exceeded');
+            this.handleError(error);
+            return false;
+        }
         
         try {
-            // Create audio context
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            this.audioContext = new AudioContext({
-                latencyHint: 'interactive',
-                sampleRate: this.config.sampleRate
-            });
+            this.log(`Initialization attempt ${this.state.initializationAttempts}/${this.state.maxInitializationAttempts}`);
+            
+            // Create audio context with mobile optimization
+            await this._createAudioContext();
             
             // Unlock audio on mobile
-            if (this.isMobile) {
+            if (this.state.isMobile) {
                 const unlocked = await this._unlockAudioOnMobile();
                 if (!unlocked) {
-                    this.log('Failed to unlock audio on mobile');
-                    return false;
+                    throw new Error('Failed to unlock audio on mobile device');
                 }
             }
             
-            // Request microphone permissions
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    channelCount: this.config.channels,
-                    sampleRate: this.config.sampleRate,
-                    echoCancellation: this.config.enableEchoCancellation,
-                    noiseSuppression: this.config.enableNoiseSuppression,
-                    autoGainControl: this.config.enableAutoGainControl
-                }
-            });
+            // Request microphone permissions with enhanced constraints
+            await this._requestMicrophoneAccess();
             
-            // Store stream for later use
-            this.audioStream = stream;
+            // Setup audio analysis for VAD
+            this._setupAudioAnalysis();
             
-            // Setup audio analyzer for VAD
-            this.analyser = this.audioContext.createAnalyser();
-            this.analyser.fftSize = 256;
-            this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-            
-            this.initialized = true;
-            this.log('TelegramAudioBridge successfully initialized');
+            this.state.initialized = true;
+            this.log('Enhanced TelegramAudioBridge successfully initialized');
             return true;
+            
         } catch (error) {
-            this.onError(error);
+            this.log('Initialization failed:', error, true);
+            this.handleError(error);
+            
+            // Retry after delay if not max attempts
+            if (this.state.initializationAttempts < this.state.maxInitializationAttempts) {
+                setTimeout(() => {
+                    this.log(`Retrying initialization in ${this.config.retryDelay}ms...`);
+                    this.initialize();
+                }, this.config.retryDelay);
+            }
+            
             return false;
         }
     }
     
-    /**
-     * Start recording audio from the microphone
-     * @returns {Promise<boolean>} Whether recording started successfully
-     */
-    async startRecording() {
-        if (!this.initialized) {
-            const initialized = await this.initialize();
-            if (!initialized) return false;
-        }
-        
-        if (this.isRecording) return true;
-        
+    async _createAudioContext() {
         try {
-            // Connect microphone to analyzer for VAD
-            const source = this.audioContext.createMediaStreamSource(this.audioStream);
-            source.connect(this.analyser);
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
             
-            // Create media recorder
-            this.mediaRecorder = new MediaRecorder(this.audioStream, {
-                mimeType: 'audio/webm;codecs=opus'
+            // Enhanced audio context options for mobile
+            const contextOptions = {
+                latencyHint: 'interactive',
+                sampleRate: this.config.sampleRate
+            };
+            
+            // Additional mobile optimizations
+            if (this.state.isMobile) {
+                contextOptions.latencyHint = 'playback'; // Better for mobile
+            }
+            
+            this.audio.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+            
+            this.log('Microphone access granted', {
+                tracks: this.audio.audioStream.getTracks().length,
+                settings: this.audio.audioStream.getTracks()[0]?.getSettings()
             });
             
-            // Set up data handling
-            this.audioBuffers = [];
-            this.mediaRecorder.ondataavailable = async (event) => {
+        } catch (error) {
+            throw new Error(`Failed to access microphone: ${error.message}`);
+        }
+    }
+    
+    _setupAudioAnalysis() {
+        try {
+            this.audio.analyser = this.audio.context.createAnalyser();
+            this.audio.analyser.fftSize = 256;
+            this.audio.dataArray = new Uint8Array(this.audio.analyser.frequencyBinCount);
+            
+            this.log('Audio analysis setup completed');
+        } catch (error) {
+            this.log('Audio analysis setup failed:', error, true);
+        }
+    }
+    
+    async startRecording() {
+        try {
+            if (!this.state.initialized) {
+                const initialized = await this.initialize();
+                if (!initialized) return false;
+            }
+            
+            if (this.state.isRecording) return true;
+            
+            this.log('Starting enhanced recording...');
+            
+            // Resume audio context if suspended
+            if (this.audio.context.state === 'suspended') {
+                await this.audio.context.resume();
+            }
+            
+            // Connect microphone to analyzer for VAD
+            const source = this.audio.context.createMediaStreamSource(this.audio.audioStream);
+            source.connect(this.audio.analyser);
+            
+            // Create media recorder with enhanced options
+            const mimeTypes = [
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/mp4'
+            ];
+            
+            let selectedMimeType = null;
+            for (const mimeType of mimeTypes) {
+                if (MediaRecorder.isTypeSupported(mimeType)) {
+                    selectedMimeType = mimeType;
+                    break;
+                }
+            }
+            
+            if (!selectedMimeType) {
+                throw new Error('No supported audio format found');
+            }
+            
+            const recorderOptions = {
+                mimeType: selectedMimeType
+            };
+            
+            // Mobile-specific optimizations
+            if (this.state.isMobile) {
+                recorderOptions.audioBitsPerSecond = 32000; // Lower bitrate for mobile
+            }
+            
+            this.audio.mediaRecorder = new MediaRecorder(this.audio.audioStream, recorderOptions);
+            
+            // Enhanced data handling
+            this.audio.mediaRecorder.ondataavailable = async (event) => {
                 if (event.data.size > 0) {
-                    const buffer = await event.data.arrayBuffer();
-                    const base64Audio = this._arrayBufferToBase64(buffer);
-                    this.onAudioData(base64Audio, false);
+                    try {
+                        const buffer = await event.data.arrayBuffer();
+                        const base64Audio = this._arrayBufferToBase64(buffer);
+                        this.callbacks.onAudioData(base64Audio, false);
+                    } catch (error) {
+                        this.log('Error processing audio data:', error, true);
+                    }
                 }
             };
             
-            // Start recording with small chunks for low latency
-            this.mediaRecorder.start(500);
-            this.isRecording = true;
+            this.audio.mediaRecorder.onerror = (event) => {
+                this.log('MediaRecorder error:', event.error, true);
+                this.handleError(event.error);
+            };
+            
+            this.audio.mediaRecorder.onstop = () => {
+                this.log('MediaRecorder stopped');
+                this.callbacks.onAudioData(null, true); // Signal end of speech
+                this.callbacks.onAudioEnd();
+            };
+            
+            // Start recording with optimized time slice
+            const timeSlice = this.state.isMobile ? 1000 : 500; // Larger chunks for mobile
+            this.audio.mediaRecorder.start(timeSlice);
+            
+            this.state.isRecording = true;
+            this.state.recordingStartTime = Date.now();
             
             // Start VAD monitoring
             this._startVADMonitoring();
@@ -163,422 +284,502 @@ class TelegramAudioBridge {
             // Provide haptic feedback
             this._triggerHapticFeedback('medium');
             
-            this.onAudioStart();
-            this.log('Recording started');
+            this.callbacks.onAudioStart();
+            this.log('Recording started successfully', {
+                mimeType: selectedMimeType,
+                timeSlice: timeSlice
+            });
+            
             return true;
+            
         } catch (error) {
-            this.onError(error);
+            this.log('Failed to start recording:', error, true);
+            this.handleError(error);
             return false;
         }
     }
     
-    /**
-     * Stop recording audio
-     * @returns {Promise<boolean>} Whether recording stopped successfully
-     */
     async stopRecording() {
-        if (!this.isRecording) return true;
+        if (!this.state.isRecording) return true;
         
         try {
+            this.log('Stopping recording...');
+            
             // Stop VAD monitoring
             this._stopVADMonitoring();
             
             // Stop media recorder
-            if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-                this.mediaRecorder.onstop = () => {
-                    this.onAudioData(null, true); // Signal end of speech
-                    this.onAudioEnd();
-                };
-                this.mediaRecorder.stop();
+            if (this.audio.mediaRecorder && this.audio.mediaRecorder.state !== 'inactive') {
+                this.audio.mediaRecorder.stop();
             } else {
-                this.onAudioData(null, true); // Signal end of speech
-                this.onAudioEnd();
+                // Manual cleanup if recorder already stopped
+                this.callbacks.onAudioData(null, true);
+                this.callbacks.onAudioEnd();
             }
             
-            this.isRecording = false;
-            this.log('Recording stopped');
+            this.state.isRecording = false;
+            
+            const recordingDuration = Date.now() - this.state.recordingStartTime;
+            this.log('Recording stopped', { duration: recordingDuration + 'ms' });
             
             // Provide haptic feedback
             this._triggerHapticFeedback('light');
             
             return true;
+            
         } catch (error) {
-            this.onError(error);
+            this.log('Error stopping recording:', error, true);
+            this.handleError(error);
             return false;
         }
     }
     
-    /**
-     * Play audio data received from the server
-     * @param {string} base64Audio - Base64-encoded audio data
-     * @param {string} mimeType - MIME type of the audio data
-     * @returns {Promise<boolean>} Whether playback started successfully
-     */
     async playAudio(base64Audio, mimeType = 'audio/pcm;rate=24000') {
         try {
-            // Validate input
             if (!base64Audio || base64Audio.length === 0) {
                 this.log('Empty audio data provided');
                 return false;
             }
             
+            this.log('Playing audio', {
+                mimeType: mimeType,
+                dataLength: base64Audio.length
+            });
+            
             // Convert base64 to array buffer
             const audioBuffer = this._base64ToArrayBuffer(base64Audio);
             
-            // Create blob URL
-            const blob = new Blob([audioBuffer], { type: mimeType });
+            // Create blob with appropriate MIME type
+            let finalMimeType = mimeType;
+            
+            // Mobile compatibility adjustments
+            if (this.state.isMobile && mimeType.includes('pcm')) {
+                finalMimeType = 'audio/wav'; // Better mobile support
+            }
+            
+            const blob = new Blob([audioBuffer], { type: finalMimeType });
             const audioUrl = URL.createObjectURL(blob);
             
             // Get audio element from pool
             const audio = this._getAudioFromPool();
             
-            // Configure audio element
-            if (this.isMobile) {
-                audio.volume = 0.9;
-                audio.playsInline = true;
-            } else {
-                audio.volume = 1.0;
-            }
+            // Enhanced audio configuration
+            this._configureAudioElement(audio);
             
             audio.src = audioUrl;
             
-            // Add to queue
-            this.audioQueue.push({
+            // Add to playback queue
+            this.state.playbackQueue.push({
                 audio: audio,
                 url: audioUrl,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                mimeType: finalMimeType
             });
             
             // Start playback if not already playing
-            if (!this.isPlaying) {
-                this._processAudioQueue();
+            if (!this.state.isPlaying) {
+                this._processPlaybackQueue();
             }
             
             return true;
+            
         } catch (error) {
-            this.onError(error);
+            this.log('Audio playback error:', error, true);
+            this.handleError(error);
             return false;
         }
     }
     
-    /**
-     * Process the audio queue for playback
-     * @private
-     */
-    async _processAudioQueue() {
-        if (this.audioQueue.length === 0) {
-            this.isPlaying = false;
-            this.onPlaybackEnd();
+    _configureAudioElement(audio) {
+        // Reset audio element
+        audio.currentTime = 0;
+        audio.playbackRate = 1.0;
+        
+        // Mobile-specific configuration
+        if (this.state.isMobile) {
+            audio.volume = 0.9; // Slightly lower for mobile speakers
+            audio.playsInline = true;
+            audio.preload = 'auto';
+            audio.crossOrigin = 'anonymous';
+        } else {
+            audio.volume = 1.0;
+            audio.preload = 'auto';
+        }
+        
+        // Enhanced error handling
+        audio.addEventListener('error', (e) => {
+            this.log('Audio element error:', {
+                error: e.target.error,
+                networkState: e.target.networkState,
+                readyState: e.target.readyState
+            }, true);
+        });
+        
+        audio.addEventListener('stalled', () => {
+            this.log('Audio playback stalled', false);
+        });
+        
+        audio.addEventListener('waiting', () => {
+            this.log('Audio waiting for data', false);
+        });
+    }
+    
+    async _processPlaybackQueue() {
+        if (this.state.playbackQueue.length === 0) {
+            this.state.isPlaying = false;
+            this.callbacks.onPlaybackEnd();
             return;
         }
         
-        this.isPlaying = true;
-        const audioItem = this.audioQueue.shift();
-        this.currentAudio = audioItem.audio;
+        this.state.isPlaying = true;
+        const audioItem = this.state.playbackQueue.shift();
+        this.state.currentAudio = audioItem.audio;
         
         // Provide haptic feedback for first audio chunk
-        if (this.audioQueue.length === 0) {
+        if (this.state.playbackQueue.length === 0) {
             this._triggerHapticFeedback('light');
-            this.onPlaybackStart();
+            this.callbacks.onPlaybackStart();
         }
         
-        let retryCount = 0;
-        const maxRetries = this.isMobile ? 2 : 1;
-        
-        const playWithRetry = async () => {
-            try {
-                await new Promise((resolve, reject) => {
-                    audioItem.audio.onended = () => {
-                        URL.revokeObjectURL(audioItem.url);
-                        this._returnAudioToPool(audioItem.audio);
-                        this.currentAudio = null;
-                        resolve();
-                    };
-                    
-                    audioItem.audio.onerror = (e) => {
-                        this.log('Audio playback error:', e, audioItem.audio.error);
-                        if (retryCount < maxRetries) {
-                            retryCount++;
-                            this.log(`Retrying playback (${retryCount}/${maxRetries})`);
-                            setTimeout(() => playWithRetry().catch(reject), 100);
-                            return;
-                        }
-                        URL.revokeObjectURL(audioItem.url);
-                        this._returnAudioToPool(audioItem.audio);
-                        this.currentAudio = null;
-                        reject(new Error('Audio playback failed after retries'));
-                    };
-                    
-                    // Mobile-optimized play
-                    if (this.isMobile) {
-                        setTimeout(() => {
-                            audioItem.audio.play().catch(err => {
-                                this.log('audio.play() rejected (mobile):', err);
-                                if (retryCount >= maxRetries) reject(err);
-                            });
-                        }, 50);
-                    } else {
-                        audioItem.audio.play().catch(err => {
-                            this.log('audio.play() rejected (desktop):', err);
-                            if (retryCount >= maxRetries) reject(err);
-                        });
-                    }
-                });
-                
-                this._processAudioQueue();
-                
-            } catch (error) {
-                this.log('Failed to play audio after retries:', error);
-                if (audioItem.url) URL.revokeObjectURL(audioItem.url);
-                if (audioItem.audio) this._returnAudioToPool(audioItem.audio);
-                this.currentAudio = null;
-                this._processAudioQueue();
-            }
-        };
-        
-        await playWithRetry();
+        try {
+            await this._playAudioItem(audioItem);
+            this._processPlaybackQueue(); // Continue with next item
+            
+        } catch (error) {
+            this.log('Playback error:', error, true);
+            this._cleanupAudioItem(audioItem);
+            this._processPlaybackQueue(); // Try next item
+        }
     }
     
-    /**
-     * Stop all audio playback
-     */
+    async _playAudioItem(audioItem, retryCount = 0) {
+        const maxRetries = this.config.maxRetries;
+        
+        return new Promise((resolve, reject) => {
+            const audio = audioItem.audio;
+            const cleanup = () => {
+                URL.revokeObjectURL(audioItem.url);
+                this._returnAudioToPool(audio);
+                this.state.currentAudio = null;
+            };
+            
+            // Timeout handling
+            const timeoutId = setTimeout(() => {
+                cleanup();
+                reject(new Error('Audio playback timeout'));
+            }, this.config.audioTimeout);
+            
+            audio.onended = () => {
+                clearTimeout(timeoutId);
+                cleanup();
+                resolve();
+            };
+            
+            audio.onerror = (e) => {
+                clearTimeout(timeoutId);
+                this.log('Audio playback error:', e.target.error, true);
+                
+                if (retryCount < maxRetries) {
+                    this.log(`Retrying playback (${retryCount + 1}/${maxRetries})`);
+                    setTimeout(() => {
+                        this._playAudioItem(audioItem, retryCount + 1)
+                            .then(resolve)
+                            .catch(reject);
+                    }, this.config.retryDelay);
+                } else {
+                    cleanup();
+                    reject(new Error('Audio playback failed after retries'));
+                }
+            };
+            
+            // Attempt to play
+            const playPromise = audio.play();
+            
+            if (playPromise !== undefined) {
+                playPromise.catch(err => {
+                    this.log('audio.play() rejected:', err, true);
+                    if (retryCount >= maxRetries) {
+                        clearTimeout(timeoutId);
+                        cleanup();
+                        reject(err);
+                    }
+                });
+            }
+        });
+    }
+    
     stopPlayback() {
+        this.log('Stopping all playback');
+        
         // Stop current audio
-        if (this.currentAudio) {
-            this.currentAudio.pause();
-            this.currentAudio.currentTime = 0;
-            this._returnAudioToPool(this.currentAudio);
-            this.currentAudio = null;
+        if (this.state.currentAudio) {
+            this.state.currentAudio.pause();
+            this.state.currentAudio.currentTime = 0;
+            this._returnAudioToPool(this.state.currentAudio);
+            this.state.currentAudio = null;
         }
         
         // Clear queue
-        for (const item of this.audioQueue) {
-            URL.revokeObjectURL(item.url);
-            this._returnAudioToPool(item.audio);
+        for (const item of this.state.playbackQueue) {
+            this._cleanupAudioItem(item);
         }
         
-        this.audioQueue = [];
-        this.isPlaying = false;
-        this.onPlaybackEnd();
-        this.log('Playback stopped');
+        this.state.playbackQueue = [];
+        this.state.isPlaying = false;
+        this.callbacks.onPlaybackEnd();
     }
     
-    /**
-     * Release all resources
-     */
-    dispose() {
-        this.stopRecording();
-        this.stopPlayback();
-        
-        // Close audio context
-        if (this.audioContext && this.audioContext.state !== 'closed') {
-            this.audioContext.close().catch(e => this.log('Error closing AudioContext:', e));
-        }
-        
-        // Stop audio stream
-        if (this.audioStream) {
-            this.audioStream.getTracks().forEach(track => track.stop());
-            this.audioStream = null;
-        }
-        
-        this.initialized = false;
-        this.log('TelegramAudioBridge disposed');
+    _cleanupAudioItem(item) {
+        if (item.url) URL.revokeObjectURL(item.url);
+        if (item.audio) this._returnAudioToPool(item.audio);
     }
     
-    /**
-     * Start VAD monitoring
-     * @private
-     */
+    // VAD (Voice Activity Detection) methods
     _startVADMonitoring() {
         this._stopVADMonitoring();
-        this.silenceStartTime = 0;
-        this.currentEnergy = 0.0;
+        this.vad.silenceStartTime = 0;
+        this.vad.currentEnergy = 0.0;
+        this.vad.isMonitoring = true;
         
-        if (!this.analyser) {
+        if (!this.audio.analyser) {
             this.log('VAD: Analyser not ready');
             return;
         }
         
-        this.log(`VAD: Starting. Threshold: ${this.config.vadSilenceThreshold}, Duration: ${this.config.vadRequiredSilenceDuration}ms`);
-        this.vadMonitoringInterval = setInterval(() => this._checkVAD(), 100);
+        this.log(`VAD: Starting monitoring. Threshold: ${this.config.vadSilenceThreshold}, Duration: ${this.config.vadRequiredSilenceDuration}ms`);
+        
+        this.vad.monitoringInterval = setInterval(() => {
+            this._checkVAD();
+        }, 100);
     }
     
-    /**
-     * Check VAD for silence detection
-     * @private
-     */
     _checkVAD() {
-        if (!this.isRecording || !this.analyser || !this.dataArray) return;
+        if (!this.state.isRecording || !this.audio.analyser || !this.audio.dataArray || !this.vad.isMonitoring) {
+            return;
+        }
         
-        this.analyser.getByteFrequencyData(this.dataArray);
-        let sum = 0;
-        for (let i = 0; i < this.dataArray.length; i++) sum += this.dataArray[i];
-        const average = this.dataArray.length > 0 ? sum / this.dataArray.length : 0;
-        const normalizedEnergy = average / 255;
-        this.currentEnergy = (this.currentEnergy * (1 - this.config.vadEnergySmoothing)) + 
-                            (normalizedEnergy * this.config.vadEnergySmoothing);
-        
-        if (this.currentEnergy < this.config.vadSilenceThreshold) {
-            if (this.silenceStartTime === 0) this.silenceStartTime = Date.now();
-            if ((Date.now() - this.silenceStartTime) >= this.config.vadRequiredSilenceDuration) {
-                this.log(`VAD: End of speech detected. Silence: ${Date.now() - this.silenceStartTime}ms`);
-                this.onVADSilenceDetected();
-                this.stopRecording();
+        try {
+            this.audio.analyser.getByteFrequencyData(this.audio.dataArray);
+            
+            let sum = 0;
+            for (let i = 0; i < this.audio.dataArray.length; i++) {
+                sum += this.audio.dataArray[i];
             }
-        } else {
-            this.silenceStartTime = 0;
+            
+            const average = this.audio.dataArray.length > 0 ? sum / this.audio.dataArray.length : 0;
+            const normalizedEnergy = average / 255;
+            
+            // Smooth the energy value
+            this.vad.currentEnergy = (this.vad.currentEnergy * (1 - this.config.vadEnergySmoothing)) + 
+                                   (normalizedEnergy * this.config.vadEnergySmoothing);
+            
+            // Check for silence
+            if (this.vad.currentEnergy < this.config.vadSilenceThreshold) {
+                if (this.vad.silenceStartTime === 0) {
+                    this.vad.silenceStartTime = Date.now();
+                }
+                
+                const silenceDuration = Date.now() - this.vad.silenceStartTime;
+                if (silenceDuration >= this.config.vadRequiredSilenceDuration) {
+                    this.log(`VAD: End of speech detected. Silence: ${silenceDuration}ms`);
+                    this.callbacks.onVADSilenceDetected();
+                    this.stopRecording();
+                }
+            } else {
+                this.vad.silenceStartTime = 0;
+            }
+            
+        } catch (error) {
+            this.log('VAD check error:', error, true);
         }
     }
     
-    /**
-     * Stop VAD monitoring
-     * @private
-     */
     _stopVADMonitoring() {
-        if (this.vadMonitoringInterval) {
-            clearInterval(this.vadMonitoringInterval);
-            this.vadMonitoringInterval = null;
+        if (this.vad.monitoringInterval) {
+            clearInterval(this.vad.monitoringInterval);
+            this.vad.monitoringInterval = null;
+            this.vad.isMonitoring = false;
             this.log('VAD: Monitoring stopped');
         }
     }
     
-    /**
-     * Set up Telegram-specific optimizations
-     * @private
-     */
+    // Telegram integration methods
     _setupTelegramOptimizations() {
-        if (this.telegramWebApp) {
-            try {
-                this.telegramWebApp.ready();
-                this.telegramWebApp.expand();
-                
-                this.log('Telegram WebApp optimizations enabled');
-                
-                // Handle viewport changes
-                this.telegramWebApp.onEvent('viewportChanged', (eventData) => {
-                    if (eventData.isStateStable) {
-                        this.log(`Telegram viewport changed: Height ${this.telegramWebApp.viewportStableHeight}, Width ${window.innerWidth}`);
-                    }
-                });
-                
-                // Handle theme changes
-                this.telegramWebApp.onEvent('themeChanged', () => {
-                    this.log(`Telegram theme changed`);
-                });
-                
-            } catch (e) {
-                this.log(`Error setting up Telegram WebApp features: ${e.message}`);
-            }
-        } else {
-            this.log('Telegram WebApp context not found');
+        if (!this.telegram.isAvailable) {
+            this.log('Telegram WebApp context not available');
+            return;
+        }
+        
+        try {
+            this.telegram.webApp.ready();
+            this.telegram.webApp.expand();
+            
+            this.log('Telegram WebApp optimizations enabled');
+            
+            // Handle viewport changes
+            this.telegram.webApp.onEvent?.('viewportChanged', (eventData) => {
+                if (eventData.isStateStable) {
+                    this.log(`Telegram viewport changed: ${this.telegram.webApp.viewportStableHeight}x${window.innerWidth}`);
+                }
+            });
+            
+            // Handle theme changes
+            this.telegram.webApp.onEvent?.('themeChanged', () => {
+                this.log('Telegram theme changed');
+            });
+            
+        } catch (error) {
+            this.log('Error setting up Telegram WebApp features:', error, true);
         }
     }
     
-    /**
-     * Unlock audio on mobile devices
-     * @private
-     * @returns {Promise<boolean>} Whether audio was unlocked successfully
-     */
-    async _unlockAudioOnMobile() {
-        if (!this.isMobile || this.audioUnlocked) return true;
-        
-        try {
-            // Method 1: Try with a silent audio element
-            const audio = new Audio();
-            audio.volume = 0;
-            audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='; // Tiny silent WAV
-            
-            const playPromise = audio.play();
-            if (playPromise !== undefined) {
-                await playPromise;
-                audio.pause();
-                audio.currentTime = 0;
-                this.log('Mobile audio unlocked successfully (Method 1)');
-                this.audioUnlocked = true;
-                return true;
+    _setupAutoInitialization() {
+        // Auto-initialize on first user interaction for mobile
+        const initOnInteraction = () => {
+            if (!this.state.initialized) {
+                this.log('Auto-initializing on user interaction');
+                this.initialize();
             }
-        } catch (error) {
-            this.log('Method 1 failed:', error.message);
-        }
+            // Remove listeners after first interaction
+            document.removeEventListener('touchstart', initOnInteraction);
+            document.removeEventListener('click', initOnInteraction);
+        };
         
-        try {
-            // Method 2: Try with AudioContext
-            if (this.audioContext) {
-                const buffer = this.audioContext.createBuffer(1, 1, 22050);
-                const source = this.audioContext.createBufferSource();
-                source.buffer = buffer;
-                source.connect(this.audioContext.destination);
-                source.start(0);
-                
-                if (this.audioContext.state === 'running') {
-                    this.log('Mobile audio unlocked successfully (Method 2)');
-                    this.audioUnlocked = true;
+        document.addEventListener('touchstart', initOnInteraction, { once: true });
+        document.addEventListener('click', initOnInteraction, { once: true });
+    }
+    
+    async _unlockAudioOnMobile() {
+        if (!this.state.isMobile || this.state.audioUnlocked) return true;
+        
+        this.log('Attempting to unlock audio on mobile...');
+        
+        const unlockMethods = [
+            () => this._unlockWithSilentAudio(),
+            () => this._unlockWithAudioContext(),
+            () => this._unlockWithUserGesture()
+        ];
+        
+        for (const method of unlockMethods) {
+            try {
+                const success = await method();
+                if (success) {
+                    this.state.audioUnlocked = true;
+                    this.log('Mobile audio unlocked successfully');
                     return true;
                 }
+            } catch (error) {
+                this.log('Audio unlock method failed:', error, false);
             }
-        } catch (error) {
-            this.log('Method 2 failed:', error.message);
         }
         
-        this.log('All unlock methods failed');
+        this.log('All audio unlock methods failed', true);
         return false;
     }
     
-    /**
-     * Create a pool of audio elements for playback
-     * @private
-     */
-    _createAudioPool() {
-        // Pre-create Audio objects to reduce latency
-        for (let i = 0; i < 3; i++) {
-            const audio = new Audio();
-            audio.preload = 'auto';
-            if (this.isMobile) {
-                audio.crossOrigin = 'anonymous';
-            }
-            this.audioPool.push(audio);
+    async _unlockWithSilentAudio() {
+        const audio = new Audio();
+        audio.volume = 0;
+        audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+        
+        try {
+            await audio.play();
+            audio.pause();
+            audio.currentTime = 0;
+            return true;
+        } catch (error) {
+            return false;
         }
-        this.log('Created audio pool with 3 elements');
     }
     
-    /**
-     * Get an audio element from the pool
-     * @private
-     * @returns {HTMLAudioElement} Audio element
-     */
+    async _unlockWithAudioContext() {
+        if (!this.audio.context) return false;
+        
+        try {
+            const buffer = this.audio.context.createBuffer(1, 1, 22050);
+            const source = this.audio.context.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.audio.context.destination);
+            source.start(0);
+            
+            return this.audio.context.state === 'running';
+        } catch (error) {
+            return false;
+        }
+    }
+    
+    async _unlockWithUserGesture() {
+        // This requires an actual user gesture, so it may not work in all contexts
+        return new Promise((resolve) => {
+            const handler = async () => {
+                try {
+                    if (this.audio.context && this.audio.context.state === 'suspended') {
+                        await this.audio.context.resume();
+                    }
+                    resolve(this.audio.context?.state === 'running');
+                } catch (error) {
+                    resolve(false);
+                }
+                document.removeEventListener('touchstart', handler);
+                document.removeEventListener('click', handler);
+            };
+            
+            document.addEventListener('touchstart', handler, { once: true });
+            document.addEventListener('click', handler, { once: true });
+            
+            // Timeout after 5 seconds
+            setTimeout(() => resolve(false), 5000);
+        });
+    }
+    
+    // Audio pool management
+    _createAudioPool() {
+        const poolSize = this.state.isMobile ? 2 : 3; // Smaller pool for mobile
+        
+        for (let i = 0; i < poolSize; i++) {
+            const audio = new Audio();
+            audio.preload = 'auto';
+            
+            if (this.state.isMobile) {
+                audio.playsInline = true;
+                audio.crossOrigin = 'anonymous';
+            }
+            
+            this.audio.audioPool.push(audio);
+        }
+        
+        this.log(`Created audio pool with ${poolSize} elements`);
+    }
+    
     _getAudioFromPool() {
-        if (this.audioPool.length > 0) {
-            return this.audioPool.shift();
+        if (this.audio.audioPool.length > 0) {
+            return this.audio.audioPool.shift();
         }
         
         // Create new if pool is empty
         const audio = new Audio();
         audio.preload = 'auto';
-        if (this.isMobile) audio.crossOrigin = 'anonymous';
+        if (this.state.isMobile) {
+            audio.playsInline = true;
+            audio.crossOrigin = 'anonymous';
+        }
         return audio;
     }
     
-    /**
-     * Return an audio element to the pool
-     * @private
-     * @param {HTMLAudioElement} audio - Audio element to return
-     */
     _returnAudioToPool(audio) {
+        // Clean up the audio element
         audio.onended = null;
         audio.onerror = null;
         audio.src = '';
+        audio.load(); // Reset the element
         
-        if (this.audioPool.length < 5) {
-            this.audioPool.push(audio);
+        // Return to pool if not too large
+        if (this.audio.audioPool.length < 5) {
+            this.audio.audioPool.push(audio);
         }
     }
     
-    /**
-     * Convert array buffer to base64
-     * @private
-     * @param {ArrayBuffer} buffer - Array buffer to convert
-     * @returns {string} Base64-encoded string
-     */
+    // Utility methods
     _arrayBufferToBase64(buffer) {
         const bytes = new Uint8Array(buffer);
         let binary = '';
@@ -588,12 +789,6 @@ class TelegramAudioBridge {
         return window.btoa(binary);
     }
     
-    /**
-     * Convert base64 to array buffer
-     * @private
-     * @param {string} base64 - Base64-encoded string
-     * @returns {ArrayBuffer} Array buffer
-     */
     _base64ToArrayBuffer(base64) {
         const binaryString = window.atob(base64);
         const len = binaryString.length;
@@ -604,55 +799,112 @@ class TelegramAudioBridge {
         return bytes.buffer;
     }
     
-    /**
-     * Trigger haptic feedback
-     * @private
-     * @param {string} type - Type of haptic feedback ('light', 'medium', 'heavy', 'selection', 'success', 'warning', 'error')
-     */
     _triggerHapticFeedback(type = 'light') {
-        if (!this.config.hapticFeedbackEnabled || !this.hapticFeedback) return;
+        if (!this.config.hapticFeedbackEnabled || !this.telegram.hapticFeedback) return;
         
         try {
             switch (type) {
                 case 'light':
-                    this.hapticFeedback.impactOccurred('light');
+                    this.telegram.hapticFeedback.impactOccurred('light');
                     break;
                 case 'medium':
-                    this.hapticFeedback.impactOccurred('medium');
+                    this.telegram.hapticFeedback.impactOccurred('medium');
                     break;
                 case 'heavy':
-                    this.hapticFeedback.impactOccurred('heavy');
+                    this.telegram.hapticFeedback.impactOccurred('heavy');
                     break;
                 case 'selection':
-                    this.hapticFeedback.selectionChanged();
+                    this.telegram.hapticFeedback.selectionChanged();
                     break;
                 case 'success':
-                    this.hapticFeedback.notificationOccurred('success');
+                    this.telegram.hapticFeedback.notificationOccurred('success');
                     break;
                 case 'warning':
-                    this.hapticFeedback.notificationOccurred('warning');
+                    this.telegram.hapticFeedback.notificationOccurred('warning');
                     break;
                 case 'error':
-                    this.hapticFeedback.notificationOccurred('error');
+                    this.telegram.hapticFeedback.notificationOccurred('error');
                     break;
             }
-        } catch (e) {
-            this.log('Haptic feedback error:', e);
+        } catch (error) {
+            this.log('Haptic feedback error:', error, false);
         }
     }
     
-    /**
-     * Log debug messages
-     * @private
-     */
-    log(...args) {
-        if (this.config.debug) {
-            console.log('[TelegramAudioBridge]', ...args);
+    // Error handling
+    handleError(error) {
+        this.log('AudioBridge error:', error, true);
+        this.callbacks.onError(error);
+        
+        // Global debug integration
+        if (typeof window.debugLog === 'function') {
+            window.debugLog(`[AudioBridge] Error: ${error.message}`, true, error);
         }
+    }
+    
+    // Cleanup and disposal
+    dispose() {
+        this.log('Disposing Enhanced TelegramAudioBridge...');
+        
+        // Stop all activities
+        this.stopRecording();
+        this.stopPlayback();
+        
+        // Stop VAD monitoring
+        this._stopVADMonitoring();
+        
+        // Close audio context
+        if (this.audio.context && this.audio.context.state !== 'closed') {
+            this.audio.context.close().catch(e => 
+                this.log('Error closing AudioContext:', e, false)
+            );
+        }
+        
+        // Stop audio stream
+        if (this.audio.audioStream) {
+            this.audio.audioStream.getTracks().forEach(track => track.stop());
+            this.audio.audioStream = null;
+        }
+        
+        // Clear audio pool
+        this.audio.audioPool = [];
+        
+        this.state.initialized = false;
+        this.log('Enhanced TelegramAudioBridge disposed');
+    }
+    
+    // Logging
+    log(message, data = null, isError = false) {
+        if (this.config.debug) {
+            const logMethod = isError ? console.error : console.log;
+            logMethod('[Enhanced TelegramAudioBridge]', message, data || '');
+            
+            // Global debug integration
+            if (typeof window.debugLog === 'function') {
+                window.debugLog(`[AudioBridge] ${message}`, isError, data);
+            }
+        }
+    }
+    
+    // Public getters
+    get isRecording() {
+        return this.state.isRecording;
+    }
+    
+    get isPlaying() {
+        return this.state.isPlaying;
+    }
+    
+    get audioUnlocked() {
+        return this.state.audioUnlocked;
+    }
+    
+    get initialized() {
+        return this.state.initialized;
     }
 }
 
-// Export for module systems
+// Export for different module systems
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = TelegramAudioBridge;
 } else if (typeof define === 'function' && define.amd) {
