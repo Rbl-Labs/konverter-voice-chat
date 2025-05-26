@@ -90,30 +90,61 @@ class TelegramAudioBridge {
                 throw new Error('Maximum initialization attempts exceeded');
             }
             
+            // CRITICAL FIX: First unlock audio on mobile before anything else
+            if (this.isMobile && !this.audioUnlocked) {
+                this.log('CRITICAL: Attempting to unlock audio on mobile FIRST...');
+                try {
+                    // Method 1: Try with a silent audio element
+                    const audio = new Audio();
+                    audio.volume = 0;
+                    audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='; // Tiny silent WAV
+                    
+                    const playPromise = audio.play();
+                    if (playPromise !== undefined) {
+                        await playPromise;
+                        audio.pause();
+                        audio.currentTime = 0;
+                        this.audioUnlocked = true;
+                        this.log('✅ Mobile audio unlocked successfully (Direct Method)');
+                    }
+                } catch (error) {
+                    this.log(`⚠️ Direct audio unlock failed: ${error.message}`, true);
+                }
+            }
+            
             // Create audio context for visualization
             if (!this.audioContext || this.audioContext.state === 'closed') {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 
                 if (this.audioContext.state === 'suspended') {
-                    await this.audioContext.resume();
-                    this.log('Audio context resumed during creation', { state: this.audioContext.state, sampleRate: this.audioContext.sampleRate });
+                    try {
+                        await this.audioContext.resume();
+                        this.log('Audio context resumed during creation', { state: this.audioContext.state, sampleRate: this.audioContext.sampleRate });
+                    } catch (error) {
+                        this.log(`Failed to resume audio context: ${error.message}`, true);
+                        // Continue anyway, we'll try again later
+                    }
                 } else {
                     this.log('Audio context created successfully', { state: this.audioContext.state, sampleRate: this.audioContext.sampleRate });
                 }
             }
             
             // Check and request microphone permission
-            await this.requestMicrophonePermission();
+            const permissionGranted = await this.requestMicrophonePermission();
+            if (!permissionGranted) {
+                throw new Error('Microphone permission denied');
+            }
             
-            // Unlock audio on mobile
+            // Try unlocking audio again with LiveAudioPlayer if needed
             if (this.isMobile && !this.audioUnlocked) {
-                this.log('Attempting to unlock audio on mobile...');
+                this.log('Attempting to unlock audio via LiveAudioPlayer...');
                 const unlocked = await this.liveAudioPlayer.unlockAudio();
                 if (unlocked) {
                     this.audioUnlocked = true;
-                    this.log('Audio unlocked successfully');
+                    this.log('Audio unlocked successfully via LiveAudioPlayer');
                 } else {
-                    this.log('Failed to unlock audio on mobile');
+                    this.log('Failed to unlock audio on mobile via LiveAudioPlayer');
+                    // Continue anyway, we'll try again when recording starts
                 }
             }
             
@@ -273,55 +304,112 @@ class TelegramAudioBridge {
         if (this.state.isRecording) return true;
         
         try {
+            // Make sure we're initialized
             if (!this.state.initialized) {
+                this.log('Audio bridge not initialized, initializing now...');
                 const initialized = await this.initialize();
                 if (!initialized) {
-                    throw new Error('Audio bridge not initialized');
+                    throw new Error('Audio bridge initialization failed');
                 }
             }
             
-            // Request microphone access
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                audio: { 
-                    channelCount: 1, 
-                    sampleRate: 16000, 
-                    echoCancellation: true, 
-                    noiseSuppression: true, 
-                    autoGainControl: true 
-                } 
-            });
+            // CRITICAL FIX: For mobile, try to unlock audio again if needed
+            if (this.isMobile && !this.audioUnlocked) {
+                this.log('CRITICAL: Mobile audio not yet unlocked, attempting again before recording...');
+                try {
+                    // Direct unlock attempt
+                    const audio = new Audio();
+                    audio.volume = 0;
+                    audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+                    await audio.play();
+                    audio.pause();
+                    this.audioUnlocked = true;
+                    this.log('✅ Mobile audio unlocked successfully during recording start');
+                } catch (error) {
+                    this.log(`⚠️ Mobile audio unlock attempt failed: ${error.message}`, true);
+                    // Continue anyway, getUserMedia might still work
+                }
+            }
+            
+            // Make sure AudioContext is resumed
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+                try {
+                    await this.audioContext.resume();
+                    this.log('Audio context resumed before recording');
+                } catch (error) {
+                    this.log(`Failed to resume audio context: ${error.message}`, true);
+                    // Continue anyway
+                }
+            }
+            
+            // Request microphone access with robust error handling
+            this.log('Requesting microphone access for recording...');
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { 
+                        channelCount: 1, 
+                        sampleRate: 16000, 
+                        echoCancellation: true, 
+                        noiseSuppression: true, 
+                        autoGainControl: true 
+                    } 
+                });
+            } catch (error) {
+                // Special handling for common permission errors
+                if (error.name === 'NotAllowedError') {
+                    throw new Error('Microphone permission denied by user. Please check browser settings.');
+                } else if (error.name === 'NotFoundError') {
+                    throw new Error('No microphone found. Please connect a microphone and try again.');
+                } else {
+                    throw new Error(`Microphone access error: ${error.message}`);
+                }
+            }
             
             this.stream = stream;
-            this.log('Microphone access granted', { 
+            this.log('Microphone access granted successfully', { 
                 tracks: stream.getAudioTracks().length,
                 settings: stream.getAudioTracks()[0]?.getSettings()
             });
             
             // Set up analyzer for VAD
-            this.analyser = this.audioContext.createAnalyser();
-            const source = this.audioContext.createMediaStreamSource(stream);
-            source.connect(this.analyser);
-            this.analyser.fftSize = 256;
-            const bufferLength = this.analyser.frequencyBinCount;
-            this.dataArray = new Uint8Array(bufferLength);
+            if (!this.analyser && this.audioContext) {
+                this.analyser = this.audioContext.createAnalyser();
+                const source = this.audioContext.createMediaStreamSource(stream);
+                source.connect(this.analyser);
+                this.analyser.fftSize = 256;
+                const bufferLength = this.analyser.frequencyBinCount;
+                this.dataArray = new Uint8Array(bufferLength);
+                this.log('Audio analyzer set up successfully');
+            }
             
-            // Set up media recorder
-            this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: 'audio/webm;codecs=opus' });
+            // Set up media recorder with error handling
+            try {
+                this.mediaRecorder = new MediaRecorder(this.stream, { mimeType: 'audio/webm;codecs=opus' });
+            } catch (error) {
+                throw new Error(`Failed to create MediaRecorder: ${error.message}`);
+            }
+            
             this.audioChunks = [];
             
             this.mediaRecorder.ondataavailable = async (event) => {
                 if (event.data.size > 0) {
-                    const audioBuffer = await event.data.arrayBuffer();
-                    const base64Audio = this.arrayBufferToBase64(audioBuffer);
-                    
-                    if (this.callbacks.onAudioData) {
-                        this.callbacks.onAudioData(base64Audio, false);
+                    try {
+                        const audioBuffer = await event.data.arrayBuffer();
+                        const base64Audio = this.arrayBufferToBase64(audioBuffer);
+                        
+                        if (this.callbacks.onAudioData) {
+                            this.callbacks.onAudioData(base64Audio, false);
+                        }
+                    } catch (error) {
+                        this.log(`Error processing audio data: ${error.message}`, true);
                     }
                 }
             };
             
             this.mediaRecorder.onstart = () => {
                 this.state.isRecording = true;
+                this.log('MediaRecorder started successfully');
                 
                 if (this.callbacks.onAudioStart) {
                     this.callbacks.onAudioStart();
@@ -339,15 +427,26 @@ class TelegramAudioBridge {
             
             this.mediaRecorder.onstop = () => {
                 this.state.isRecording = false;
+                this.log('MediaRecorder stopped');
                 
                 if (this.callbacks.onAudioEnd) {
                     this.callbacks.onAudioEnd();
                 }
             };
             
+            this.mediaRecorder.onerror = (event) => {
+                this.log(`MediaRecorder error: ${event.error}`, true);
+                
+                if (this.callbacks.onError) {
+                    this.callbacks.onError(new Error(`MediaRecorder error: ${event.error}`));
+                }
+            };
+            
             // Start recording
+            this.log('Starting MediaRecorder...');
             this.mediaRecorder.start(500);
             this.startVADMonitoring();
+            this.log('Recording started successfully');
             
             return true;
             
