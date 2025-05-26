@@ -13,19 +13,13 @@ class GeminiNativeAudioChat {
         this.responseQueue = [];
         this.audioChunks = [];
         
-        // Enhanced audio playback system
+        // Audio playback system
         this.playbackAudioContext = null;
-        this.audioQueue = [];
         this.isPlaying = false;
-        this.currentSource = null;
-        this.nextPlayTime = 0;
+        this.currentSource = null; // Renamed from currentPlaybackSource for clarity
         this.audioInitialized = false;
         this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        
-        // Audio buffer management
-        this.minBufferSize = 3; // Minimum chunks before starting playback
-        this.maxBufferSize = 10; // Maximum chunks to buffer
-        this.chunkOverlap = 0.01; // 10ms overlap to prevent clicks
+        this.currentTurnAudioData = []; // Stores Base64 PCM strings for the current turn
         
         // VAD properties
         this.vadSilenceThreshold = 0.01;
@@ -60,263 +54,135 @@ class GeminiNativeAudioChat {
 
     async initializeAudioContext() {
         try {
-            if (this.playbackAudioContext) {
-                return; // Already initialized
+            if (this.playbackAudioContext && this.playbackAudioContext.state !== 'closed') {
+                if (this.playbackAudioContext.state === 'suspended') {
+                    await this.playbackAudioContext.resume();
+                    this.addDebugInfo('Playback AudioContext resumed.');
+                }
+                return; 
             }
             
-            // Create AudioContext with optimal settings
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            this.playbackAudioContext = new AudioContextClass(); // Let browser choose sample rate
+            this.addDebugInfo(`Playback AudioContext initialized/re-initialized. Actual rate: ${this.playbackAudioContext.sampleRate}Hz`);
             
-            // Try to create with 48kHz (widely supported)
-            try {
-                this.playbackAudioContext = new AudioContextClass({ 
-                    sampleRate: 48000,
-                    latencyHint: 'interactive'
-                });
-                this.addDebugInfo(`AudioContext created with sampleRate: ${this.playbackAudioContext.sampleRate}Hz`);
-            } catch (e) {
-                // Fallback to default sample rate
-                this.playbackAudioContext = new AudioContextClass();
-                this.addDebugInfo(`AudioContext created with default sampleRate: ${this.playbackAudioContext.sampleRate}Hz`);
-            }
-            
-            // Resume if suspended (common on mobile)
             if (this.playbackAudioContext.state === 'suspended') {
                 await this.playbackAudioContext.resume();
-                this.addDebugInfo('AudioContext resumed from suspended state');
+                this.addDebugInfo('Playback AudioContext immediately resumed after creation.');
             }
             
-            // Create a gain node for volume control
+            // GainNode for volume control (optional, but good practice)
             this.gainNode = this.playbackAudioContext.createGain();
             this.gainNode.connect(this.playbackAudioContext.destination);
             
-            this.audioInitialized = true;
-            this.addDebugInfo('Audio system initialized successfully');
-            
-            // Start the audio processing loop
-            this.startAudioProcessingLoop();
+            this.audioInitialized = true; // Mark as initialized
+            this.addDebugInfo('Audio system (re)initialized successfully for playback.');
             
         } catch (error) {
-            this.addDebugInfo(`Failed to initialize audio context: ${error.message}`);
-            console.error('Audio initialization error:', error);
+            this.addDebugInfo(`Failed to initialize playback audio context: ${error.message}`);
+            console.error('Playback AudioContext initialization error:', error);
         }
     }
 
-    startAudioProcessingLoop() {
-        const processAudioQueue = async () => {
-            if (this.audioQueue.length > 0 && !this.isPlaying) {
-                // Wait for minimum buffer size unless queue is being finalized
-                if (this.audioQueue.length >= this.minBufferSize || this.audioQueue.some(item => item.isFinal)) {
-                    await this.playNextInQueue();
-                }
-            }
-            
-            // Continue processing
-            if (this.audioInitialized) {
-                requestAnimationFrame(processAudioQueue);
-            }
-        };
-        
-        processAudioQueue();
-    }
+    // Removed startAudioProcessingLoop, playNextInQueue, playProcessedAudio, queueAudioData, createAudioBufferFromPCM, finalizeAudioStream
 
-    async playNextInQueue() {
-        if (this.audioQueue.length === 0 || this.isPlaying) {
-            return;
-        }
-        
-        const audioItem = this.audioQueue.shift();
-
-        if (audioItem.isFinal && !audioItem.buffer) {
-            this.addDebugInfo('Reached final audio marker in queue. Playback complete.');
-            this.isPlaying = false;
-            this.nextPlayTime = 0; // Reset for next interaction
-            // Potentially stop waveform animation if it's tied to isPlaying
-            if (typeof this.animateWaveformForAudio === 'function' && this.isPlaying === false) {
-                 // This is a placeholder, actual stop logic might be different
-            }
+    async playRawPcmData(pcmDataArray) {
+        if (!pcmDataArray || pcmDataArray.length === 0) {
+            this.addDebugInfo('playRawPcmData: No PCM data to play.');
             return;
         }
 
-        if (!audioItem.buffer) {
-            this.addDebugInfo('Skipping queue item with no buffer.');
-            this.isPlaying = false; // Allow next item to be processed
-            if (this.audioQueue.length > 0) {
-                requestAnimationFrame(() => this.playNextInQueue());
-            }
-            return;
-        }
-        
-        this.isPlaying = true;
         try {
-            await this.playProcessedAudio(audioItem);
-        } catch (error) {
-            this.addDebugInfo(`Error playing audio: ${error.message}`);
-        }
-        
-        this.isPlaying = false;
-        
-        // Immediately try to play next item for smooth playback
-        if (this.audioQueue.length > 0) {
-            // Using requestAnimationFrame to avoid call stack overflow if many short buffers
-            requestAnimationFrame(() => this.playNextInQueue());
-        } else {
-            this.nextPlayTime = 0; // Reset if queue is empty
-             if (typeof this.animateWaveformForAudio === 'function') {
-                // This is a placeholder, actual stop logic might be different
-            }
-        }
-    }
-
-    async playProcessedAudio(audioItem) {
-        // This function now assumes audioItem.buffer is valid
-        return new Promise((resolve, reject) => {
-            try {
-                if (!this.playbackAudioContext || !audioItem.buffer) {
-                    this.addDebugInfo('PlaybackAudioContext or audio buffer missing in playProcessedAudio.');
-                    reject(new Error('Audio context or buffer missing.'));
-                    return;
-                }
-
-                const source = this.playbackAudioContext.createBufferSource();
-                source.buffer = audioItem.buffer;
-                
-                // Connect through gain node
-                source.connect(this.gainNode);
-                
-                // Calculate when to start this chunk
-                const currentTime = this.playbackAudioContext.currentTime;
-                const startTime = Math.max(currentTime, this.nextPlayTime - this.chunkOverlap);
-                
-                // Update next play time
-                this.nextPlayTime = startTime + audioItem.buffer.duration;
-                
-                source.onended = () => {
-                    this.addDebugInfo(`Audio chunk finished (duration: ${audioItem.buffer.duration.toFixed(3)}s)`);
-                    resolve();
-                };
-                
-                source.start(startTime);
-                this.currentSource = source;
-                
-                // Update UI
-                if (audioItem.isFirst) {
-                    this.addMessage('🔊 [Playing audio response]', 'ai');
-                    this.animateWaveformForAudio();
-                }
-                
-            } catch (error) {
-                this.addDebugInfo(`Playback error: ${error.message}`);
-                reject(error);
-            }
-        });
-    }
-
-    async queueAudioData(base64AudioData, isFirst = false, isFinal = false) {
-        if (!base64AudioData) {
-            if (isFinal) {
-                // Mark the end of audio stream
-                this.audioQueue.push({ isFinal: true });
-            }
-            return;
-        }
-        
-        try {
-            // Initialize audio context if not already done
-            if (!this.audioInitialized) {
+            if (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed') {
+                this.addDebugInfo('playRawPcmData: PlaybackAudioContext not ready. Attempting to initialize.');
                 await this.initializeAudioContext();
+                if (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed') {
+                     this.addDebugInfo('playRawPcmData: Failed to initialize AudioContext. Cannot play audio.');
+                     this.updateStatus('Audio playback failed: Context error.', 'error');
+                     return;
+                }
             }
             
-            // Decode base64 to ArrayBuffer
-            const binaryString = atob(base64AudioData);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+            if (this.playbackAudioContext.state === 'suspended') {
+                this.addDebugInfo('playRawPcmData: Playback AudioContext is suspended, attempting to resume...');
+                await this.playbackAudioContext.resume();
+                this.addDebugInfo(`playRawPcmData: Playback AudioContext state after resume: ${this.playbackAudioContext.state}`);
+                 if (this.playbackAudioContext.state === 'suspended') {
+                    this.addDebugInfo('playRawPcmData: Failed to resume AudioContext. Playback aborted.');
+                    this.updateStatus('Audio resume failed. Please interact with the page.', 'error');
+                    return;
+                 }
             }
-            
-            // Create audio buffer from PCM data
-            const audioBuffer = await this.createAudioBufferFromPCM(bytes);
-            
-            // Add to queue
-            this.audioQueue.push({
-                buffer: audioBuffer,
-                isFirst: isFirst,
-                isFinal: isFinal
-            });
-            
-            this.addDebugInfo(`Queued audio chunk: ${audioBuffer.duration.toFixed(3)}s, queue size: ${this.audioQueue.length}`);
-            
-            // Manage buffer size
-            if (this.audioQueue.length > this.maxBufferSize) {
-                this.addDebugInfo('Audio queue full, dropping oldest chunk');
-                this.audioQueue.shift();
-            }
-            
-        } catch (error) {
-            this.addDebugInfo(`Failed to queue audio: ${error.message}`);
-        }
-    }
 
-    async createAudioBufferFromPCM(pcmData) {
-        // Gemini sends 24kHz, 16-bit, mono PCM
-        const inputSampleRate = 24000;
-        const numSamples = pcmData.length / 2; // 16-bit = 2 bytes per sample
-        
-        // Create a buffer at the AudioContext's sample rate
-        const outputSampleRate = this.playbackAudioContext.sampleRate;
-        const outputNumSamples = Math.floor(numSamples * outputSampleRate / inputSampleRate);
-        
-        const audioBuffer = this.playbackAudioContext.createBuffer(1, outputNumSamples, outputSampleRate);
-        const channelData = audioBuffer.getChannelData(0);
-        
-        // Convert PCM to float samples with resampling
-        const dataView = new DataView(pcmData.buffer, pcmData.byteOffset, pcmData.length);
-        
-        for (let outputIndex = 0; outputIndex < outputNumSamples; outputIndex++) {
-            // Calculate corresponding input sample index
-            const inputIndex = Math.floor(outputIndex * inputSampleRate / outputSampleRate);
-            
-            if (inputIndex * 2 + 1 < pcmData.length) {
-                // Read 16-bit PCM sample (little-endian)
-                const pcmSample = dataView.getInt16(inputIndex * 2, true);
-                // Convert to normalized float [-1, 1]
-                channelData[outputIndex] = pcmSample / 32768.0;
-            }
-        }
-        
-        return audioBuffer;
-    }
+            const inputSampleRate = 24000; // Gemini output is 24kHz PCM
+            const numChannels = 1;
+            const numSamples = pcmDataArray.length / 2; // 16-bit PCM (2 bytes per sample)
 
-    // Override the original playAudioResponse method
-    async playAudioResponse(audioData) {
-        try {
-            this.addDebugInfo(`Received audio data for queueing: ${audioData ? audioData.length : 0} bytes`);
-            
-            if (!audioData) {
-                this.addDebugInfo('No audio data to play.');
+            if (numSamples === 0) {
+                this.addDebugInfo('playRawPcmData: Decoded PCM data has 0 samples.');
                 return;
             }
+
+            const audioBuffer = this.playbackAudioContext.createBuffer(numChannels, numSamples, inputSampleRate);
+            const channelData = audioBuffer.getChannelData(0);
+            const dataView = new DataView(pcmDataArray.buffer, pcmDataArray.byteOffset, pcmDataArray.byteLength);
+
+            for (let i = 0; i < numSamples; i++) {
+                const pcmSample = dataView.getInt16(i * 2, true); // true for little-endian
+                channelData[i] = pcmSample / 32768.0; // Normalize to [-1.0, 1.0]
+            }
             
-            // Determine if this is the first chunk by checking queue
-            const isFirst = this.audioQueue.length === 0 && !this.isPlaying;
+            this.addDebugInfo(`playRawPcmData: AudioBuffer created. SR: ${audioBuffer.sampleRate}Hz, Samples: ${audioBuffer.length}, Duration: ${audioBuffer.duration.toFixed(3)}s`);
+
+            if (this.currentSource) {
+                try { 
+                    this.currentSource.onended = null; // Remove previous onended handler
+                    this.currentSource.stop(); 
+                    this.currentSource.disconnect();
+                } catch(e) { this.addDebugInfo("Error stopping previous source: " + e.message); }
+            }
+
+            const source = this.playbackAudioContext.createBufferSource();
+            source.buffer = audioBuffer;
             
-            // Queue the audio data instead of playing immediately
-            await this.queueAudioData(audioData, isFirst, false);
+            const targetPlaybackRate = inputSampleRate / this.playbackAudioContext.sampleRate;
+            if (Math.abs(source.playbackRate.value - targetPlaybackRate) > 0.001) { // Check if adjustment is needed
+                 source.playbackRate.value = targetPlaybackRate;
+                 this.addDebugInfo(`playRawPcmData: Adjusting playback rate. BufferSR: ${inputSampleRate}, ContextSR: ${this.playbackAudioContext.sampleRate}, Rate: ${targetPlaybackRate.toFixed(3)}`);
+            } else {
+                 this.addDebugInfo(`playRawPcmData: Playback rate fine. BufferSR: ${inputSampleRate}, ContextSR: ${this.playbackAudioContext.sampleRate}`);
+            }
             
+            source.connect(this.gainNode || this.playbackAudioContext.destination);
+            source.start();
+            this.currentSource = source;
+            this.isPlaying = true;
+            this.addMessage('🔊 [Playing audio response]', 'ai');
+            this.animateWaveformForAudio();
+
+            source.onended = () => {
+                this.addDebugInfo('playRawPcmData: Audio playback finished.');
+                if (this.currentSource === source) {
+                    this.currentSource = null;
+                }
+                this.isPlaying = false;
+                this.animateWaveformForAudio(); // To reset waveform
+            };
+
         } catch (error) {
-            this.addDebugInfo(`Audio queueing error: ${error.message}`);
-            console.error('Error queueing audio:', error);
+            this.addDebugInfo(`playRawPcmData error: ${error.message}. Stack: ${error.stack}`);
+            console.error('Error playing raw PCM audio:', error);
+            this.isPlaying = false;
         }
     }
-
-    // Add method to handle end of audio stream
-    finalizeAudioStream() {
-        this.addDebugInfo('Finalizing audio stream');
-        this.queueAudioData(null, false, true);
+    
+    // playAudioResponse now just accumulates data for the current turn
+    async playAudioResponse(audioData) { 
+        if (audioData) { 
+            this.addDebugInfo(`Received audio data chunk for current turn, length: ${audioData.length}`);
+            this.currentTurnAudioData.push(audioData);
+        }
     }
-
-    // Keep all the original methods below with minor modifications...
     
     initializeUI() {
         this.statusEl = document.getElementById('status');
