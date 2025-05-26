@@ -426,26 +426,32 @@
 
     <!-- Load TelegramAudioBridge first -->
     <script type="text/javascript">
+        // Force cache-busting with a unique timestamp
         const timestamp = Date.now();
+        const buildVersion = '1.0.1'; // Increment this on each deployment
+        const cacheBuster = `${buildVersion}-${timestamp}`;
+        
+        console.log('🔄 [CACHE-BUSTER] Loading scripts with version:', cacheBuster);
         
         // Load TelegramAudioBridge
         const bridgeScript = document.createElement('script');
         bridgeScript.type = 'text/javascript';
-        bridgeScript.src = `telegram_audio_bridge.js?v=${timestamp}`;
+        bridgeScript.src = `telegram_audio_bridge.js?v=${cacheBuster}`;
         document.head.appendChild(bridgeScript);
         
         // Load GeminiTelegramClient after bridge is loaded
         bridgeScript.onload = () => {
             const clientScript = document.createElement('script');
             clientScript.type = 'text/javascript';
-            clientScript.src = `gemini_telegram_client.js?v=${timestamp}`;
+            clientScript.src = `gemini_telegram_client.js?v=${cacheBuster}`;
             document.head.appendChild(clientScript);
-            console.log('🔄 [VERSION CHECK] Scripts loaded at:', new Date().toISOString());
+            console.log('✅ [VERSION CHECK] Scripts loaded at:', new Date().toISOString());
+            console.log('✅ [VERSION CHECK] Using WebRTC-based Telegram audio integration');
         };
         
         // Error handling
         bridgeScript.onerror = (e) => {
-            console.error('Failed to load TelegramAudioBridge:', e);
+            console.error('❌ Failed to load TelegramAudioBridge:', e);
             document.getElementById('status').textContent = 'Failed to load audio components';
             document.getElementById('status').className = 'status error';
         };
