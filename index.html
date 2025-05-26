@@ -424,37 +424,114 @@
         </div>
     </div>
 
-    <!-- Load TelegramAudioBridge first -->
+    <!-- Debug info display (hidden by default) -->
+    <div id="debug-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: rgba(0,0,0,0.8); color: white; padding: 10px; font-family: monospace; font-size: 12px; max-height: 50vh; overflow-y: auto; z-index: 9999;">
+        <div id="debug-content"></div>
+        <button onclick="document.getElementById('debug-overlay').style.display='none'" style="background: #333; color: white; border: none; padding: 5px 10px; margin-top: 10px;">Close</button>
+    </div>
+
+    <!-- Script loader with enhanced error handling -->
     <script type="text/javascript">
+        // Debug logging function
+        function debugLog(message, isError = false) {
+            const timestamp = new Date().toISOString();
+            const prefix = isError ? '❌ [ERROR]' : '🔄 [DEBUG]';
+            const fullMessage = `${timestamp} ${prefix} ${message}`;
+            console.log(fullMessage);
+            
+            // Add to debug overlay
+            const debugContent = document.getElementById('debug-content');
+            if (debugContent) {
+                const msgElement = document.createElement('div');
+                msgElement.textContent = fullMessage;
+                if (isError) msgElement.style.color = '#ff6b6b';
+                debugContent.appendChild(msgElement);
+            }
+            
+            // Update status if it's an error
+            if (isError) {
+                const statusEl = document.getElementById('status');
+                if (statusEl) {
+                    statusEl.textContent = 'Error: ' + message;
+                    statusEl.className = 'status error';
+                }
+            }
+        }
+        
+        // Show debug overlay on triple tap
+        let tapCount = 0;
+        document.addEventListener('click', () => {
+            tapCount++;
+            if (tapCount === 3) {
+                document.getElementById('debug-overlay').style.display = 'block';
+                tapCount = 0;
+            }
+            setTimeout(() => { tapCount = 0; }, 500);
+        });
+        
         // Force cache-busting with a unique timestamp
         const timestamp = Date.now();
-        const buildVersion = '1.0.1'; // Increment this on each deployment
+        const buildVersion = '1.0.2'; // Increment this on each deployment
         const cacheBuster = `${buildVersion}-${timestamp}`;
         
-        console.log('🔄 [CACHE-BUSTER] Loading scripts with version:', cacheBuster);
+        debugLog(`Loading scripts with version: ${cacheBuster}`);
         
-        // Load TelegramAudioBridge
-        const bridgeScript = document.createElement('script');
-        bridgeScript.type = 'text/javascript';
-        bridgeScript.src = `telegram_audio_bridge.js?v=${cacheBuster}`;
-        document.head.appendChild(bridgeScript);
+        // Script loading with retries
+        function loadScript(src, onSuccess, onError, retries = 2) {
+            const script = document.createElement('script');
+            script.type = 'text/javascript';
+            script.src = `${src}?v=${cacheBuster}`;
+            
+            script.onload = onSuccess;
+            
+            script.onerror = (e) => {
+                debugLog(`Failed to load script: ${src}`, true);
+                if (retries > 0) {
+                    debugLog(`Retrying... (${retries} attempts left)`);
+                    setTimeout(() => {
+                        loadScript(src, onSuccess, onError, retries - 1);
+                    }, 1000);
+                } else {
+                    debugLog('All retries failed', true);
+                    if (onError) onError(e);
+                }
+            };
+            
+            document.head.appendChild(script);
+            return script;
+        }
         
-        // Load GeminiTelegramClient after bridge is loaded
-        bridgeScript.onload = () => {
-            const clientScript = document.createElement('script');
-            clientScript.type = 'text/javascript';
-            clientScript.src = `gemini_telegram_client.js?v=${cacheBuster}`;
-            document.head.appendChild(clientScript);
-            console.log('✅ [VERSION CHECK] Scripts loaded at:', new Date().toISOString());
-            console.log('✅ [VERSION CHECK] Using WebRTC-based Telegram audio integration');
-        };
-        
-        // Error handling
-        bridgeScript.onerror = (e) => {
-            console.error('❌ Failed to load TelegramAudioBridge:', e);
-            document.getElementById('status').textContent = 'Failed to load audio components';
-            document.getElementById('status').className = 'status error';
-        };
+        // Load TelegramAudioBridge first
+        debugLog('Loading TelegramAudioBridge...');
+        loadScript('telegram_audio_bridge.js', 
+            // Success callback
+            () => {
+                debugLog('TelegramAudioBridge loaded successfully');
+                
+                // Then load GeminiTelegramClient
+                debugLog('Loading GeminiTelegramClient...');
+                loadScript('gemini_telegram_client.js',
+                    // Success callback
+                    () => {
+                        debugLog('GeminiTelegramClient loaded successfully');
+                        debugLog('All scripts loaded successfully');
+                        debugLog('Using WebRTC-based Telegram audio integration');
+                    },
+                    // Error callback
+                    (e) => {
+                        debugLog('Failed to load GeminiTelegramClient after multiple retries', true);
+                        document.getElementById('status').textContent = 'Failed to load client components';
+                        document.getElementById('status').className = 'status error';
+                    }
+                );
+            },
+            // Error callback
+            (e) => {
+                debugLog('Failed to load TelegramAudioBridge after multiple retries', true);
+                document.getElementById('status').textContent = 'Failed to load audio components';
+                document.getElementById('status').className = 'status error';
+            }
+        );
     </script>
 </body>
 </html>

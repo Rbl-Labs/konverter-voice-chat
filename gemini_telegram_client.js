@@ -10,58 +10,109 @@
 
 class GeminiTelegramClient {
     constructor() {
-        // Configuration
-        this.config = {
-            debug: true,
-            reconnectAttempts: 3,
-            reconnectDelay: 2000,
-            sessionTimeout: 30000,
-            vadSilenceThreshold: 0.01,
-            vadRequiredSilenceDuration: 1500
-        };
+        console.log('🔄 [DEBUG] GeminiTelegramClient constructor called');
         
-        // State
-        this.sessionToken = null;
-        this.sessionConfig = null;
-        this.isConnected = false;
-        this.isInitialized = false;
-        this.ws = null;
-        this.reconnectCount = 0;
-        this.reconnectTimer = null;
-        this.sessionInitTimer = null;
-        
-        // UI Elements
-        this.statusEl = document.getElementById('status');
-        this.micButton = document.getElementById('micButton');
-        this.connectBtn = document.getElementById('connectBtn');
-        this.disconnectBtn = document.getElementById('disconnectBtn');
-        this.conversationLog = document.getElementById('conversationLog');
-        this.sessionInfo = document.getElementById('sessionInfo');
-        this.waveform = document.getElementById('waveform');
-        this.debugInfo = document.getElementById('debugInfo');
-        
-        // Initialize audio bridge
-        this.audioBridge = new TelegramAudioBridge({
-            debug: this.config.debug,
-            vadSilenceThreshold: this.config.vadSilenceThreshold,
-            vadRequiredSilenceDuration: this.config.vadRequiredSilenceDuration,
-            onAudioStart: () => this.handleAudioStart(),
-            onAudioEnd: () => this.handleAudioEnd(),
-            onAudioData: (data, isEndOfSpeech) => this.handleAudioData(data, isEndOfSpeech),
-            onPlaybackStart: () => this.handlePlaybackStart(),
-            onPlaybackEnd: () => this.handlePlaybackEnd(),
-            onVADSilenceDetected: () => this.handleVADSilenceDetected(),
-            onError: (error) => this.handleAudioError(error)
-        });
-        
-        // Initialize UI
-        this.initializeUI();
-        
-        // Initialize session
-        this.initializeSession();
-        
-        // Setup animation
-        this.setupParticleAnimation();
+        try {
+            // Configuration
+            this.config = {
+                debug: true,
+                reconnectAttempts: 3,
+                reconnectDelay: 2000,
+                sessionTimeout: 30000,
+                vadSilenceThreshold: 0.01,
+                vadRequiredSilenceDuration: 1500
+            };
+            
+            // State
+            this.sessionToken = null;
+            this.sessionConfig = null;
+            this.isConnected = false;
+            this.isInitialized = false;
+            this.ws = null;
+            this.reconnectCount = 0;
+            this.reconnectTimer = null;
+            this.sessionInitTimer = null;
+            
+            console.log('🔄 [DEBUG] Getting UI elements');
+            
+            // UI Elements
+            this.statusEl = document.getElementById('status');
+            if (!this.statusEl) console.error('❌ [ERROR] Status element not found');
+            
+            this.micButton = document.getElementById('micButton');
+            if (!this.micButton) console.error('❌ [ERROR] Mic button not found');
+            
+            this.connectBtn = document.getElementById('connectBtn');
+            if (!this.connectBtn) console.error('❌ [ERROR] Connect button not found');
+            
+            this.disconnectBtn = document.getElementById('disconnectBtn');
+            if (!this.disconnectBtn) console.error('❌ [ERROR] Disconnect button not found');
+            
+            this.conversationLog = document.getElementById('conversationLog');
+            if (!this.conversationLog) console.error('❌ [ERROR] Conversation log not found');
+            
+            this.sessionInfo = document.getElementById('sessionInfo');
+            if (!this.sessionInfo) console.error('❌ [ERROR] Session info not found');
+            
+            this.waveform = document.getElementById('waveform');
+            if (!this.waveform) console.error('❌ [ERROR] Waveform not found');
+            
+            this.debugInfo = document.getElementById('debugInfo');
+            
+            console.log('✅ [DEBUG] UI elements initialized');
+            
+            // Check if TelegramAudioBridge is available
+            if (typeof TelegramAudioBridge === 'undefined') {
+                console.error('❌ [ERROR] TelegramAudioBridge is not defined. Make sure it loaded correctly.');
+                this.updateStatus('Error: Audio components not loaded', 'error');
+                return;
+            }
+            
+            console.log('🔄 [DEBUG] Initializing TelegramAudioBridge');
+            
+            // Initialize audio bridge
+            this.audioBridge = new TelegramAudioBridge({
+                debug: this.config.debug,
+                vadSilenceThreshold: this.config.vadSilenceThreshold,
+                vadRequiredSilenceDuration: this.config.vadRequiredSilenceDuration,
+                onAudioStart: () => this.handleAudioStart(),
+                onAudioEnd: () => this.handleAudioEnd(),
+                onAudioData: (data, isEndOfSpeech) => this.handleAudioData(data, isEndOfSpeech),
+                onPlaybackStart: () => this.handlePlaybackStart(),
+                onPlaybackEnd: () => this.handlePlaybackEnd(),
+                onVADSilenceDetected: () => this.handleVADSilenceDetected(),
+                onError: (error) => this.handleAudioError(error)
+            });
+            
+            console.log('✅ [DEBUG] TelegramAudioBridge initialized');
+            
+            // Initialize UI
+            this.initializeUI();
+            
+            // Initialize session
+            this.initializeSession();
+            
+            // Setup animation
+            this.setupParticleAnimation();
+            
+            console.log('✅ [DEBUG] GeminiTelegramClient constructor completed');
+        } catch (error) {
+            console.error('❌ [CRITICAL ERROR] Error in GeminiTelegramClient constructor:', error);
+            if (this.statusEl) {
+                this.statusEl.textContent = 'Critical error: ' + error.message;
+                this.statusEl.className = 'status error';
+            } else {
+                // If we can't even get the status element, create a new one
+                const errorDiv = document.createElement('div');
+                errorDiv.style.color = 'red';
+                errorDiv.style.padding = '20px';
+                errorDiv.style.margin = '20px';
+                errorDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+                errorDiv.style.borderRadius = '10px';
+                errorDiv.textContent = 'Critical initialization error: ' + error.message;
+                document.body.prepend(errorDiv);
+            }
+        }
     }
     
     /**
