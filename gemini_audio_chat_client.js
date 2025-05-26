@@ -10,11 +10,6 @@ class GeminiNativeAudioChat {
         this.animationId = null;
         this.audioChunks = []; // For user's outgoing audio
 
-        this.playbackAudioContext = null; // For playing Gemini's audio
-        this.currentSource = null; // Renamed from currentPlaybackSource
-        this.currentTurnAudioData = []; // Accumulates Base64 PCM for the current turn
-        // this.minPlaybackDurationThreshold removed, playing on turn_complete
-
         // VAD properties
         this.vadSilenceThreshold = 0.01; 
         this.vadRequiredSilenceDuration = 1500; 
@@ -24,30 +19,68 @@ class GeminiNativeAudioChat {
         this.vadMonitoringInterval = null;
         
         this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        this.audioInitializedOnInteraction = false;
+        this.audioInitializedOnInteraction = false; // For the old AudioContext unlock
+        this.audioUnlocked = false; // For the new LiveAudioPlayer unlock
+
+        this.liveAudioPlayer = new LiveAudioPlayer(); // Instantiate new player
+        this.hapticFeedback = null; // For Telegram haptics
 
         this.initializeUI();
         this.initializeSession();
-        this.setupMobileAudioUnlock();
+        this.setupMobileAudioUnlock(); 
+        this.setupTelegramOptimizations(); // New call
     }
 
-    setupMobileAudioUnlock() {
-        if (this.isMobile) {
-            const unlockAudio = async () => {
-                if (!this.audioInitializedOnInteraction) {
-                    if (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed') {
-                        this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        this.addDebugInfo(`Playback AudioContext created on interaction (default rate: ${this.playbackAudioContext.sampleRate}Hz)`);
+    setupTelegramOptimizations() {
+        if (window.Telegram?.WebApp) {
+            const tg = window.Telegram.WebApp;
+            try {
+                tg.ready();
+                tg.expand(); // Expand the Mini App to full height
+                // tg.enableClosingConfirmation(); // Enable confirmation before closing
+                this.addDebugInfo('Telegram WebApp optimizations enabled (ready, expand).');
+
+                // Store haptic feedback object
+                if (tg.HapticFeedback) {
+                    this.hapticFeedback = tg.HapticFeedback;
+                    this.addDebugInfo('Telegram HapticFeedback available.');
+                } else {
+                    this.addDebugInfo('Telegram HapticFeedback not available on this version/platform.');
+                }
+
+                // Example: Handle viewport changes (optional, if your UI needs to adapt)
+                tg.onEvent('viewportChanged', (eventData) => {
+                    if (eventData.isStateStable) {
+                        this.addDebugInfo(`Telegram viewport changed: Height ${tg.viewportStableHeight}, Width ${window.innerWidth}`);
+                        // You could adjust UI elements here if needed
                     }
-                    if (this.playbackAudioContext.state === 'suspended') {
-                        try {
-                            await this.playbackAudioContext.resume();
-                            this.addDebugInfo('Playback AudioContext resumed on interaction.');
-                        } catch (e) {
-                            this.addDebugInfo(`Error resuming playback AudioContext on interaction: ${e.message}`);
-                        }
+                });
+                 tg.onEvent('themeChanged', () => {
+                    this.addDebugInfo(`Telegram theme changed. Current: ${JSON.stringify(tg.themeParams)}`);
+                    // You could adapt your UI to tg.themeParams.bg_color, tg.themeParams.text_color etc.
+                });
+
+
+            } catch (e) {
+                this.addDebugInfo(`Error setting up Telegram WebApp features: ${e.message}`, true);
+            }
+        } else {
+            this.addDebugInfo('Telegram WebApp context not found.');
+        }
+    }
+
+    setupMobileAudioUnlock() { // This method might be simplified or removed if LiveAudioPlayer handles unlock robustly
+        if (this.isMobile && !this.audioUnlocked) { // Check new flag
+            const unlockHandler = async () => {
+                if (!this.audioUnlocked) { // Double check
+                    const unlocked = await this.liveAudioPlayer.unlockAudio();
+                    if (unlocked) {
+                        this.audioUnlocked = true;
+                        this.addDebugInfo('Audio unlocked via LiveAudioPlayer.');
+                    } else {
+                        this.addDebugInfo('Failed to unlock audio via LiveAudioPlayer. User interaction might still be needed.');
                     }
-                    // Also for microphone audio context if it's separate and used
+                    // Also ensure mic visualization context is handled if separate
                     if (this.audioContext && this.audioContext.state === 'suspended') {
                          try {
                             await this.audioContext.resume();
@@ -56,14 +89,13 @@ class GeminiNativeAudioChat {
                             this.addDebugInfo(`Error resuming mic AudioContext on interaction: ${e.message}`);
                         }
                     }
-                    this.audioInitializedOnInteraction = true;
-                    document.removeEventListener('click', unlockAudio);
-                    document.removeEventListener('touchstart', unlockAudio);
+                    document.removeEventListener('click', unlockHandler);
+                    document.removeEventListener('touchstart', unlockHandler);
                 }
             };
-            document.addEventListener('click', unlockAudio);
-            document.addEventListener('touchstart', unlockAudio);
-            this.addDebugInfo('Mobile: Audio unlock handler set up. Tap screen to enable audio.');
+            document.addEventListener('click', unlockHandler, { once: true });
+            document.addEventListener('touchstart', unlockHandler, { once: true });
+            this.addDebugInfo('Mobile: LiveAudioPlayer unlock handler set up. Tap screen to enable audio.');
         }
     }
 
@@ -135,13 +167,9 @@ class GeminiNativeAudioChat {
     async connectToWebSocket() {
         try {
             this.addDebugInfo('Connecting to WebSocket proxy...');
-            if (!this.isMobile && (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed')) {
-                this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.addDebugInfo(`Playback AudioContext created (default rate: ${this.playbackAudioContext.sampleRate}Hz)`);
-                 if (this.playbackAudioContext.state === 'suspended') {
-                    await this.playbackAudioContext.resume();
-                 }
-            }
+            // PlaybackAudioContext is no longer managed directly here for playback
+            // LiveAudioPlayer handles its own audio elements.
+            // Mic visualization AudioContext is handled separately if needed.
 
             const wsUrl = this.sessionConfig.websocketProxyUrl;
             if (!wsUrl) throw new Error('No WebSocket proxy URL provided');
@@ -200,13 +228,23 @@ class GeminiNativeAudioChat {
                 this.handleDisconnection(message.reason);
                 this.addMessage(`🔌 Disconnected from Gemini: ${message.reason}`, 'ai');
                 break;
-            case 'audio_response':
-                if (message.audioData && message.mimeType === 'audio/pcm;rate=24000') {
-                    this.addDebugInfo(`Received PCM audio data chunk, length: ${message.audioData.length}`);
-                    this.currentTurnAudioData.push(message.audioData);
-                } else if (message.audioData) {
-                    this.addDebugInfo(`Received audio data with unexpected mimeType: ${message.mimeType}. Discarding.`);
+            case 'live_audio_chunk':
+                this.addDebugInfo(`Received live_audio_chunk. MimeType: ${message.mimeType}, SampleRate: ${message.sampleRate}, Length: ${message.audioData?.length}`);
+                if (this.hapticFeedback && !this.liveAudioPlayer.isPlaying) { // Check if player isn't already playing (first chunk of a turn)
+                    try { this.hapticFeedback.impactOccurred('light'); } catch(e) { console.warn("Haptic error:", e); }
                 }
+                if (message.audioData && message.mimeType === 'audio/wav') { // Expecting WAV now
+                    this.liveAudioPlayer.playChunk(message.audioData, message.mimeType);
+                    this.animateWaveformForAudio(); // Visual feedback
+                } else {
+                    this.addDebugInfo('Received live_audio_chunk with unexpected data or mimeType. Discarding.');
+                }
+                break;
+            case 'audio_stream_complete':
+                this.addDebugInfo('Received audio_stream_complete. Finalizing stream.');
+                this.liveAudioPlayer.finalizeStream();
+                // If in continuous conversation, this might be a good place to re-enable mic or VAD
+                // For now, let VAD handle re-triggering or manual toggle.
                 break;
             case 'text_response':
                 this.addMessage('🤖 ' + message.text, 'ai');
@@ -214,24 +252,6 @@ class GeminiNativeAudioChat {
             case 'error':
                 this.addDebugInfo(`Server error: ${message.message}`);
                 this.updateStatus(message.message, 'error');
-                break;
-            case 'turn_complete':
-                this.addDebugInfo('Turn completed by Gemini. Processing accumulated audio for the turn.');
-                if (this.currentTurnAudioData.length > 0) {
-                    const combinedBase64Pcm = this.currentTurnAudioData.join('');
-                    this.currentTurnAudioData = []; // Clear for next turn
-                    
-                    const binaryString = window.atob(combinedBase64Pcm);
-                    const len = binaryString.length;
-                    const pcmDataArray = new Uint8Array(len);
-                    for (let i = 0; i < len; i++) {
-                        pcmDataArray[i] = binaryString.charCodeAt(i);
-                    }
-                    this.playRawPcmData(pcmDataArray); // New method to play the full turn's audio
-                } else {
-                    this.addDebugInfo('No audio data accumulated for this turn.');
-                }
-                // Removed call to non-existent this.finalizeAudioStream()
                 break;
             case 'gemini_setup_complete':
                 this.addDebugInfo('Received gemini_setup_complete message from backend.');
@@ -250,113 +270,7 @@ class GeminiNativeAudioChat {
     }
     
     // Removed processPendingAudio and playMp3Data
-    // Replaced with playRawPcmData for handling raw PCM from backend
-
-    async playRawPcmData(pcmDataArray) {
-        if (!pcmDataArray || pcmDataArray.length === 0) {
-            this.addDebugInfo('playRawPcmData: No PCM data to play.');
-            return;
-        }
-
-        try {
-            if (!this.playbackAudioContext || this.playbackAudioContext.state === 'closed') {
-                this.addDebugInfo('playRawPcmData: PlaybackAudioContext not ready. Attempting to initialize.');
-                 // Re-initialize playbackAudioContext if it's missing or closed
-                this.playbackAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                this.addDebugInfo(`Playback AudioContext re-initialized. Actual rate: ${this.playbackAudioContext.sampleRate}Hz`);
-                if (this.playbackAudioContext.state === 'suspended') {
-                    await this.playbackAudioContext.resume();
-                }
-                 // Initialize gainNode if it doesn't exist
-                if (!this.gainNode || this.gainNode.context.state === 'closed') {
-                    this.gainNode = this.playbackAudioContext.createGain();
-                    this.gainNode.connect(this.playbackAudioContext.destination);
-                }
-            }
-            
-            if (this.playbackAudioContext.state === 'suspended') {
-                this.addDebugInfo('playRawPcmData: Playback AudioContext is suspended, attempting to resume...');
-                await this.playbackAudioContext.resume();
-                this.addDebugInfo(`playRawPcmData: Playback AudioContext state after resume: ${this.playbackAudioContext.state}`);
-                 if (this.playbackAudioContext.state === 'suspended') {
-                    this.addDebugInfo('playRawPcmData: Failed to resume AudioContext. Playback aborted.');
-                    this.updateStatus('Audio resume failed. Please interact with the page.', 'error');
-                    return;
-                 }
-            }
-
-            const geminiSampleRate = 24000; // Gemini output is 24kHz PCM
-            const contextSampleRate = this.playbackAudioContext.sampleRate;
-            const numChannels = 1;
-            const numInputSamples = pcmDataArray.length / 2; // 16-bit PCM
-
-            if (numInputSamples === 0) {
-                this.addDebugInfo('playRawPcmData: Decoded PCM data has 0 input samples.');
-                return;
-            }
-
-            // Calculate the number of samples for the output buffer at the context's sample rate
-            const numOutputSamples = Math.round(numInputSamples * contextSampleRate / geminiSampleRate);
-            const audioBuffer = this.playbackAudioContext.createBuffer(numChannels, numOutputSamples, contextSampleRate);
-            const outputChannelData = audioBuffer.getChannelData(0);
-            const inputDataView = new DataView(pcmDataArray.buffer, pcmDataArray.byteOffset, pcmDataArray.byteLength);
-
-            // Simple linear interpolation for resampling
-            for (let i = 0; i < numOutputSamples; i++) {
-                const inputT = i * geminiSampleRate / contextSampleRate;
-                const inputIndex = Math.floor(inputT);
-                const nextInputIndex = Math.ceil(inputT);
-                const fraction = inputT - inputIndex;
-
-                let val1 = 0, val2 = 0;
-
-                if (inputIndex < numInputSamples) {
-                    val1 = inputDataView.getInt16(inputIndex * 2, true) / 32768.0;
-                }
-                if (nextInputIndex < numInputSamples) {
-                    val2 = inputDataView.getInt16(nextInputIndex * 2, true) / 32768.0;
-                } else { // Handle edge case for the last sample
-                    val2 = val1;
-                }
-                outputChannelData[i] = val1 + (val2 - val1) * fraction;
-            }
-            
-            this.addDebugInfo(`playRawPcmData: Resampled AudioBuffer created. Target SR: ${contextSampleRate}Hz, Samples: ${numOutputSamples}, Duration: ${audioBuffer.duration.toFixed(3)}s`);
-
-            if (this.currentSource) {
-                try { 
-                    this.currentSource.onended = null; 
-                    this.currentSource.stop(); 
-                    this.currentSource.disconnect();
-                } catch(e) { this.addDebugInfo("Error stopping previous source: " + e.message); }
-            }
-
-            const source = this.playbackAudioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.playbackRate.value = 1.0; // Playback rate is 1.0 as we've resampled
-            
-            source.connect(this.gainNode || this.playbackAudioContext.destination);
-            source.start();
-            this.currentSource = source;
-            this.isPlaying = true;
-            this.addMessage('🔊 [Playing audio response]', 'ai');
-            this.animateWaveformForAudio();
-
-            source.onended = () => {
-                this.addDebugInfo('playRawPcmData: Audio playback finished.');
-                if (this.currentSource === source) {
-                    this.currentSource = null;
-                }
-                this.isPlaying = false;
-                this.animateWaveformForAudio(); // To reset waveform
-            };
-
-        } catch (error) {
-            this.addDebugInfo(`playRawPcmData error: ${error.message}. Stack: ${error.stack}`);
-            console.error('Error playing raw PCM audio:', error);
-            this.isPlaying = false;
-        }
-    }
+    // REMOVED: async playRawPcmData(pcmDataArray) { ... } - LiveAudioPlayer handles this now.
 
     async sendAudioToServer(audioData, isEndOfSpeech = false) {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
@@ -378,12 +292,16 @@ class GeminiNativeAudioChat {
             this.updateStatus('Please connect first', 'error');
             return;
         }
-        if (this.isMobile && !this.audioInitializedOnInteraction) {
-            this.addDebugInfo('Mobile audio not yet unlocked by user interaction. Please tap screen.');
-            await this.setupMobileAudioUnlock(); 
-            if (!this.audioInitializedOnInteraction) {
-                 this.updateStatus('Tap screen to enable audio', 'error');
-                 return;
+        if (this.isMobile && !this.audioUnlocked) { // Check new flag
+            this.addDebugInfo('Mobile audio not yet unlocked by user interaction. Attempting to unlock...');
+            const unlocked = await this.liveAudioPlayer.unlockAudio();
+            if (unlocked) {
+                this.audioUnlocked = true;
+                this.addDebugInfo('Audio unlocked successfully on toggle.');
+            } else {
+                this.addDebugInfo('Failed to unlock audio on toggle. User might need to tap again.');
+                this.updateStatus('Tap screen/button again to enable audio', 'error');
+                return;
             }
         }
 
@@ -555,11 +473,8 @@ class GeminiNativeAudioChat {
 
     disconnect(reason = 'User disconnected') {
         this.addDebugInfo(`Disconnecting... Reason: ${reason}`);
-        if (this.currentSource) { // Changed from currentPlaybackSource
-            try { this.currentSource.stop(); } catch(e){}
-            this.currentSource = null;
-        }
-        this.currentTurnAudioData = []; // Clear pending audio for the turn
+        // No need to stop this.currentSource as it's managed by LiveAudioPlayer now.
+        // this.currentTurnAudioData is also removed.
         if (this.ws) this.ws.close(1000, reason);
         this.handleDisconnection(reason);
     }
@@ -608,6 +523,199 @@ class GeminiNativeAudioChat {
 window.addEventListener('load', () => {
     new GeminiNativeAudioChat();
 });
+
+class LiveAudioPlayer {
+    constructor() {
+        this.audioQueue = [];
+        this.isPlaying = false;
+        this.currentAudio = null; // Reference to the currently playing HTMLAudioElement
+        this.isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        this.audioPool = []; // Pool of reusable HTMLAudioElement
+        this.audioContextForUnlock = null; // Minimal AudioContext for unlocking on mobile
+
+        this.setupMobileOptimizations();
+    }
+
+    setupMobileOptimizations() {
+        // Pre-create Audio objects for mobile to reduce latency
+        for (let i = 0; i < 3; i++) { // Create a small pool
+            const audio = new Audio();
+            audio.preload = 'auto';
+            if (this.isMobile) {
+                audio.crossOrigin = 'anonymous'; // May help with some CORS issues if audio is from different origin
+                // audio.volume = 0.8; // Example: Slightly lower for mobile speakers, adjust as needed
+            }
+            this.audioPool.push(audio);
+        }
+    }
+
+    async unlockAudio() {
+        if (this.isMobile) {
+            // Direct HTML5 Audio unlock (more reliable for our use case)
+            const audio = this.getAudioFromPool(); // Use a pooled one
+            audio.volume = 0;
+            // Tiny silent WAV data URL (1 sample, 1 channel, 8kHz, 8-bit)
+            // Using a minimal valid WAV to avoid network requests or complex generation.
+            audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+            
+            try {
+                await audio.play();
+                audio.pause();
+                audio.currentTime = 0; // Reset
+                console.log('[LiveAudioPlayer] Mobile audio unlocked via HTML5 Audio.');
+                this.returnAudioToPool(audio); // Return to pool after use
+                return true;
+            } catch (e) {
+                console.warn('[LiveAudioPlayer] Could not unlock audio via HTML5 Audio:', e);
+                this.returnAudioToPool(audio); // Still return it
+                return false;
+            }
+        }
+        return true; // Desktop doesn't need explicit unlock in this manner
+    }
+
+    playChunk(base64Audio, mimeType) {
+        try {
+            // Validate chunk size for mobile
+            if (this.isMobile && base64Audio.length > 500000) { // ~500KB limit for base64 string
+                console.warn('[LiveAudioPlayer] Large audio chunk on mobile, may cause issues. Size:', base64Audio.length);
+            }
+        
+            const audioBuffer = this.base64ToArrayBuffer(base64Audio);
+            const blob = new Blob([audioBuffer], { type: mimeType });
+            const audioUrl = URL.createObjectURL(blob);
+
+            const audio = this.getAudioFromPool();
+            
+            // Mobile-specific audio settings
+            if (this.isMobile) {
+                audio.volume = 0.9; // Slightly lower for mobile speakers, or 1.0 if preferred
+                audio.playsInline = true; // Prevent fullscreen on iOS, ensure it's set
+            } else {
+                audio.volume = 1.0; 
+            }
+            
+            audio.src = audioUrl;
+
+            this.audioQueue.push({
+                audio: audio,
+                url: audioUrl,
+                timestamp: Date.now()
+            });
+
+            if (!this.isPlaying) {
+                this.processAudioQueue();
+            }
+        } catch (error) {
+            console.error('[LiveAudioPlayer] Failed to play audio chunk:', error);
+        }
+    }
+
+    async processAudioQueue() {
+        if (this.audioQueue.length === 0) {
+            this.isPlaying = false;
+            return;
+        }
+
+        this.isPlaying = true;
+        const audioItem = this.audioQueue.shift();
+        this.currentAudio = audioItem.audio;
+        let retryCount = 0;
+        const maxRetries = this.isMobile ? 2 : 1;
+
+        const playWithRetry = async () => {
+            try {
+                await new Promise((resolve, reject) => {
+                    audioItem.audio.onended = () => {
+                        URL.revokeObjectURL(audioItem.url);
+                        this.returnAudioToPool(audioItem.audio);
+                        this.currentAudio = null;
+                        resolve();
+                    };
+                    
+                    audioItem.audio.onerror = (e) => {
+                        console.error('[LiveAudioPlayer] Audio error:', e, audioItem.audio.error);
+                        if (retryCount < maxRetries) {
+                            retryCount++;
+                            console.log(`[LiveAudioPlayer] Retrying playback (${retryCount}/${maxRetries})`);
+                            // No need to revoke/return here, will be handled by next attempt or final failure
+                            setTimeout(() => playWithRetry().catch(reject), 100); // Catch rejection of retry
+                            return; // Don't reject outer promise yet
+                        }
+                        URL.revokeObjectURL(audioItem.url);
+                        this.returnAudioToPool(audioItem.audio);
+                        this.currentAudio = null;
+                        reject(new Error('Audio playback failed after retries'));
+                    };
+
+                    // Mobile-optimized play
+                    if (this.isMobile) {
+                        setTimeout(() => {
+                            audioItem.audio.play().catch(err => { // Catch play() promise rejection
+                                console.error('[LiveAudioPlayer] audio.play() rejected (mobile):', err);
+                                // onerror should handle this, but as a fallback:
+                                if (retryCount >= maxRetries) reject(err);
+                            });
+                        }, 50); // Small delay for mobile audio processing
+                    } else {
+                        audioItem.audio.play().catch(err => { // Catch play() promise rejection
+                            console.error('[LiveAudioPlayer] audio.play() rejected (desktop):', err);
+                             if (retryCount >= maxRetries) reject(err);
+                        });
+                    }
+                });
+                
+                this.processAudioQueue(); // Success - continue
+                
+            } catch (error) { // This catch is for the Promise from new Promise(...)
+                console.error('[LiveAudioPlayer] Failed to play audio after retries or critical error:', error);
+                // Ensure URL is revoked and audio returned if not already handled by onerror
+                if (audioItem.url) URL.revokeObjectURL(audioItem.url);
+                if (audioItem.audio) this.returnAudioToPool(audioItem.audio);
+                this.currentAudio = null;
+                this.processAudioQueue(); // Continue despite failure of this item
+            }
+        };
+
+        await playWithRetry();
+    }
+
+    getAudioFromPool() {
+        if (this.audioPool.length > 0) {
+            return this.audioPool.shift();
+        }
+        // Create new if pool is empty, though ideally pool should be managed
+        const audio = new Audio();
+        audio.preload = 'auto';
+        if (this.isMobile) audio.crossOrigin = 'anonymous';
+        return audio;
+    }
+
+    returnAudioToPool(audio) {
+        audio.onended = null; // Clear listeners
+        audio.onerror = null;
+        audio.src = ''; // Release resource
+        if (this.audioPool.length < 5) { // Limit pool size to prevent memory issues
+            this.audioPool.push(audio);
+        }
+    }
+
+    finalizeStream() {
+        // This method is called when the backend signals 'audio_stream_complete'.
+        // The queue will naturally empty. If any special cleanup per stream is needed, add here.
+        console.log('[LiveAudioPlayer] Audio stream complete signal received.');
+    }
+
+    base64ToArrayBuffer(base64) {
+        const binaryString = window.atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    }
+}
 
 class ParticleAnimation {
     constructor() {
