@@ -69,33 +69,33 @@ class GeminiNativeAudioChat {
         }
     }
 
-    setupMobileAudioUnlock() { // This method might be simplified or removed if LiveAudioPlayer handles unlock robustly
-        if (this.isMobile && !this.audioUnlocked) { // Check new flag
+    setupMobileAudioUnlock() {
+        if (this.isMobile && !this.audioUnlocked) {
             const unlockHandler = async () => {
-                if (!this.audioUnlocked) { // Double check
-                    const unlocked = await this.liveAudioPlayer.unlockAudio();
-                    if (unlocked) {
-                        this.audioUnlocked = true;
-                        this.addDebugInfo('Audio unlocked via LiveAudioPlayer.');
-                    } else {
-                        this.addDebugInfo('Failed to unlock audio via LiveAudioPlayer. User interaction might still be needed.');
-                    }
-                    // Also ensure mic visualization context is handled if separate
-                    if (this.audioContext && this.audioContext.state === 'suspended') {
-                         try {
-                            await this.audioContext.resume();
-                            this.addDebugInfo('Microphone visualization AudioContext resumed on interaction.');
-                        } catch (e) {
-                            this.addDebugInfo(`Error resuming mic AudioContext on interaction: ${e.message}`);
+                if (!this.audioUnlocked) {
+                    try {
+                        // Use LiveAudioPlayer's unlock method
+                        const unlocked = await this.liveAudioPlayer.unlockAudio();
+                        if (unlocked) {
+                            this.audioUnlocked = true;
+                            this.addDebugInfo('✅ Audio unlocked via LiveAudioPlayer.');
+                        } else {
+                            this.addDebugInfo('❌ Failed to unlock audio via LiveAudioPlayer.');
                         }
+                    } catch (error) {
+                        this.addDebugInfo(`❌ Audio unlock error: ${error.message}`);
                     }
+                    
+                    // Clean up event listeners
                     document.removeEventListener('click', unlockHandler);
                     document.removeEventListener('touchstart', unlockHandler);
                 }
             };
+            
+            // Add listeners for user interaction
             document.addEventListener('click', unlockHandler, { once: true });
             document.addEventListener('touchstart', unlockHandler, { once: true });
-            this.addDebugInfo('Mobile: LiveAudioPlayer unlock handler set up. Tap screen to enable audio.');
+            this.addDebugInfo('📱 Mobile: Audio unlock handler ready.');
         }
     }
 
@@ -206,6 +206,15 @@ class GeminiNativeAudioChat {
     }
 
     handleWebSocketMessage(message) {
+        // Enhanced debugging
+        console.log('🔍 [DEBUG] Received message:', {
+            type: message.type,
+            keys: Object.keys(message),
+            hasAudioData: !!message.audioData,
+            audioDataLength: message.audioData ? message.audioData.length : 0,
+            mimeType: message.mimeType
+        });
+        
         switch (message.type) {
             case 'session_initialized':
                 this.addDebugInfo('Session initialized successfully');
@@ -229,43 +238,55 @@ class GeminiNativeAudioChat {
                 this.addMessage(`🔌 Disconnected from Gemini: ${message.reason}`, 'ai');
                 break;
             case 'live_audio_chunk':
-                this.addDebugInfo(`Received live_audio_chunk. MimeType: ${message.mimeType}, SampleRate: ${message.sampleRate}, Length: ${message.audioData?.length}`);
-                if (this.hapticFeedback && !this.liveAudioPlayer.isPlaying) { // Check if player isn't already playing (first chunk of a turn)
-                    try { this.hapticFeedback.impactOccurred('light'); } catch(e) { console.warn("Haptic error:", e); }
+                this.addDebugInfo(`🎵 Received live_audio_chunk. MimeType: ${message.mimeType}, Length: ${message.audioData?.length}`);
+            
+                // Haptic feedback for first chunk
+                if (this.hapticFeedback && !this.liveAudioPlayer.isPlaying) {
+                    try { 
+                        this.hapticFeedback.impactOccurred('light'); 
+                    } catch(e) { 
+                        console.warn("Haptic error:", e); 
+                    }
                 }
-                if (message.audioData && message.mimeType === 'audio/wav') { // Expecting WAV now
-                    this.liveAudioPlayer.playChunk(message.audioData, message.mimeType);
-                    this.animateWaveformForAudio(); // Visual feedback
+                
+                // Validate and play audio
+                if (message.audioData && message.mimeType === 'audio/wav') {
+                    try {
+                        this.liveAudioPlayer.playChunk(message.audioData, message.mimeType);
+                        this.animateWaveformForAudio();
+                        this.addDebugInfo('✅ Audio chunk sent to player');
+                    } catch (error) {
+                        this.addDebugInfo(`❌ Audio playback error: ${error.message}`);
+                    }
                 } else {
-                    this.addDebugInfo('Received live_audio_chunk with unexpected data or mimeType. Discarding.');
+                    this.addDebugInfo(`❌ Invalid audio chunk - Data: ${!!message.audioData}, MimeType: ${message.mimeType}`);
                 }
                 break;
             case 'audio_stream_complete':
-                this.addDebugInfo('Received audio_stream_complete. Finalizing stream.');
+                this.addDebugInfo('🏁 Audio stream complete - finalizing');
                 this.liveAudioPlayer.finalizeStream();
-                // If in continuous conversation, this might be a good place to re-enable mic or VAD
-                // For now, let VAD handle re-triggering or manual toggle.
                 break;
             case 'text_response':
                 this.addMessage('🤖 ' + message.text, 'ai');
                 break;
             case 'error':
-                this.addDebugInfo(`Server error: ${message.message}`);
+                this.addDebugInfo(`❌ Server error: ${message.message}`);
                 this.updateStatus(message.message, 'error');
                 break;
             case 'gemini_setup_complete':
-                this.addDebugInfo('Received gemini_setup_complete message from backend.');
+                this.addDebugInfo('✅ Gemini setup complete');
                 break;
             case 'input_transcription':
-                this.addDebugInfo(`Input transcription: ${message.text}`);
+                this.addDebugInfo(`🎤 Input: ${message.text}`);
                 this.addMessage(`🎤 You: ${message.text}`, 'user');
                 break;
             case 'output_transcription':
-                this.addDebugInfo(`Output transcription: ${message.text}`);
+                this.addDebugInfo(`🤖 Output: ${message.text}`);
                 this.addMessage(`🤖 AI: ${message.text}`, 'ai');
                 break;
             default:
-                this.addDebugInfo(`Unknown message type: ${message.type}`);
+                this.addDebugInfo(`❓ Unknown message type: ${message.type} (Full message: ${JSON.stringify(message).substring(0, 200)})`);
+                console.warn('Unknown message:', message);
         }
     }
     
@@ -551,27 +572,77 @@ class LiveAudioPlayer {
 
     async unlockAudio() {
         if (this.isMobile) {
-            // Direct HTML5 Audio unlock (more reliable for our use case)
-            const audio = this.getAudioFromPool(); // Use a pooled one
-            audio.volume = 0;
-            // Tiny silent WAV data URL (1 sample, 1 channel, 8kHz, 8-bit)
-            // Using a minimal valid WAV to avoid network requests or complex generation.
-            audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+            console.log('[LiveAudioPlayer] 🔓 Attempting to unlock mobile audio...');
             
             try {
-                await audio.play();
-                audio.pause();
-                audio.currentTime = 0; // Reset
-                console.log('[LiveAudioPlayer] Mobile audio unlocked via HTML5 Audio.');
-                this.returnAudioToPool(audio); // Return to pool after use
-                return true;
-            } catch (e) {
-                console.warn('[LiveAudioPlayer] Could not unlock audio via HTML5 Audio:', e);
-                this.returnAudioToPool(audio); // Still return it
-                return false;
+                // Method 1: Try with a silent audio element
+                const audio = new Audio(); // Create a fresh one for unlock, don't pool yet
+                audio.volume = 0;
+                audio.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA='; // Tiny silent WAV
+                
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                    await playPromise;
+                    audio.pause();
+                    audio.currentTime = 0;
+                    console.log('[LiveAudioPlayer] ✅ Mobile audio unlocked successfully (Method 1)');
+                    // Don't pool this specific unlock audio instance unless designed to.
+                    return true;
+                }
+            } catch (error) {
+                console.warn('[LiveAudioPlayer] ⚠️ Method 1 failed:', error.message);
             }
+            
+            try {
+                // Method 2: Try with blob URL and a pooled audio element
+                const audioBuffer = new ArrayBuffer(44);
+                const view = new DataView(audioBuffer);
+                // Create minimal WAV header
+                const writeString = (offset, string) => {
+                    for (let i = 0; i < string.length; i++) {
+                        view.setUint8(offset + i, string.charCodeAt(i));
+                    }
+                };
+                writeString(0, 'RIFF');
+                view.setUint32(4, 36, true); // ChunkSize
+                writeString(8, 'WAVE');
+                writeString(12, 'fmt '); // Subchunk1ID
+                view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+                view.setUint16(20, 1, true);  // AudioFormat (1 for PCM)
+                view.setUint16(22, 1, true);  // NumChannels (mono)
+                view.setUint32(24, 8000, true); // SampleRate (e.g., 8kHz, can be anything valid)
+                view.setUint32(28, 16000, true); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+                view.setUint16(32, 2, true);  // BlockAlign (NumChannels * BitsPerSample/8)
+                view.setUint16(34, 16, true); // BitsPerSample
+                writeString(36, 'data');      // Subchunk2ID
+                view.setUint32(40, 0, true);  // Subchunk2Size (0 for no actual data)
+                
+                const blob = new Blob([audioBuffer], { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+                
+                const audio2 = this.getAudioFromPool(); // Use a pooled one
+                audio2.volume = 0;
+                audio2.src = url;
+                
+                await audio2.play();
+                audio2.pause();
+                audio2.currentTime = 0;
+                URL.revokeObjectURL(url);
+                this.returnAudioToPool(audio2);
+                
+                console.log('[LiveAudioPlayer] ✅ Mobile audio unlocked with method 2');
+                return true;
+                
+            } catch (error) {
+                console.warn('[LiveAudioPlayer] ⚠️ Method 2 failed:', error.message);
+            }
+            
+            console.warn('[LiveAudioPlayer] ❌ All unlock methods failed');
+            return false;
         }
-        return true; // Desktop doesn't need explicit unlock in this manner
+        
+        console.log('[LiveAudioPlayer] 💻 Desktop - no unlock needed');
+        return true;
     }
 
     playChunk(base64Audio, mimeType) {
