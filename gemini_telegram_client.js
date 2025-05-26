@@ -503,11 +503,26 @@ class GeminiTelegramClient {
                 this.ui.micButton.innerHTML = '🎤';
                 this.updateStatus('Connected! Click microphone to talk', 'connected');
             } else {
-                // Mobile audio unlock attempt
-                if (!this.audioBridge.audioUnlocked) {
+                // Mobile audio unlock attempt - with more retries
+                if (!this.audioBridge.audioUnlocked || !this.audioBridge.initialized) {
+                    this.log('Attempting to initialize audio with retry...');
+                    
+                    // Reset initialization attempts to give it another chance
+                    if (this.audioBridge.state) {
+                        this.audioBridge.state.initializationAttempts = 0;
+                    }
+                    
                     const unlocked = await this.audioBridge.initialize();
                     if (!unlocked) {
+                        // Show more user-friendly message with instructions
                         this.updateStatus('Audio access denied. Please check permissions.', 'error');
+                        
+                        // Add alert for mobile users with instructions
+                        if (this.audioBridge.state.isMobile) {
+                            setTimeout(() => {
+                                alert('Please allow microphone access in your browser settings, then try again. On iOS, you may need to tap the "AA" button in the address bar and select "Website Settings" to enable the microphone.');
+                            }, 500);
+                        }
                         return;
                     }
                 }
