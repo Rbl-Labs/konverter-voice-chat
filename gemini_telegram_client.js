@@ -402,6 +402,10 @@ class GeminiTelegramClient {
                     this.handleGeminiConnected();
                     break;
                     
+                case 'gemini_setup_complete':
+                    this.log('Gemini setup complete');
+                    break;
+                    
                 case 'gemini_disconnected':
                     this.handleGeminiDisconnected(message.reason);
                     break;
