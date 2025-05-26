@@ -762,17 +762,5 @@ class GeminiTelegramClient {
     }
 }
 
-// Enhanced initialization
-window.addEventListener('DOMContentLoaded', () => {
-    try {
-        window.geminiClient = new GeminiTelegramClient();
-        if (typeof window.debugLog === 'function') {
-            window.debugLog('Enhanced GeminiTelegramClient created successfully');
-        }
-    } catch (error) {
-        console.error('Failed to create GeminiTelegramClient:', error);
-        if (typeof window.debugLog === 'function') {
-            window.debugLog('Failed to create GeminiTelegramClient', true, error.message);
-        }
-    }
-});
+// The instance will be created by the main HTML initialization function
+// No need for DOMContentLoaded listener since we're creating the instance manually
