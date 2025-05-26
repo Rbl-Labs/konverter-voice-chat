@@ -522,9 +522,13 @@ class GeminiTelegramClient {
                 case 'health_check':
                     this.log('Received health check');
                     break;
+
+                case 'debug_log':
+                    this.log('[Backend Debug]', false, message.data); // Log the data part of debug_log
+                    break;
                     
                 default:
-                    this.log(`Unknown message type: ${message.type}`);
+                    this.log(`Unknown message type: ${message.type}`, true, message); // Log the whole message for unknown types
             }
         } catch (error) {
             this.log(`Error handling message: ${error.message}`, true);
