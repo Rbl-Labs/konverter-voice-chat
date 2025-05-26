@@ -131,15 +131,41 @@ class TelegramAudioBridge {
                 }
             }
             
-            // Request microphone permissions with enhanced constraints
-            await this._requestMicrophoneAccess();
-            
-            // Setup audio analysis for VAD
-            this._setupAudioAnalysis();
-            
-            this.state.initialized = true;
-            this.log('Enhanced TelegramAudioBridge successfully initialized');
-            return true;
+            // Request microphone permissions with enhanced constraints - IMMEDIATELY
+            try {
+                // Force immediate permission prompt
+                this.log('Requesting microphone access immediately...');
+                await this._requestMicrophoneAccess();
+                
+                // Setup audio analysis for VAD
+                this._setupAudioAnalysis();
+                
+                this.state.initialized = true;
+                this.log('Enhanced TelegramAudioBridge successfully initialized');
+                return true;
+            } catch (micError) {
+                // Special handling for permission errors
+                if (micError.message && (
+                    micError.message.includes('permission') || 
+                    micError.message.includes('denied') || 
+                    micError.message.includes('NotAllowedError')
+                )) {
+                    this.log('Microphone permission denied:', micError, true);
+                    
+                    // On iOS, show specific instructions
+                    if (this.state.isMobile && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+                        if (typeof window.debugLog === 'function') {
+                            window.debugLog('[AudioBridge] iOS microphone permission denied. Showing instructions.', true);
+                        }
+                        
+                        // Throw specific error for better handling
+                        throw new Error('iOS microphone permission denied. Please check browser settings.');
+                    }
+                }
+                
+                // Re-throw other errors
+                throw micError;
+            }
             
         } catch (error) {
             this.log('Initialization failed:', error, true);
