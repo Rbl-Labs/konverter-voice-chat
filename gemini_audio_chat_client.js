@@ -1,5 +1,6 @@
 console.log('🔄 [VERSION CHECK] gemini_audio_chat_client.js v3.0 loaded at:', new Date().toISOString());
 console.log('🔄 [VERSION CHECK] handleWebSocketMessage method exists:', typeof GeminiNativeAudioChat.prototype.handleWebSocketMessage);
+
 class GeminiNativeAudioChat {
     constructor() {
         this.sessionToken = null;
@@ -224,6 +225,7 @@ class GeminiNativeAudioChat {
                 this.ws.send(JSON.stringify({ type: 'connect_gemini' }));
                 this.addDebugInfo('Sent connect_gemini message');
                 break;
+                
             case 'gemini_connected':
                 this.addDebugInfo('Received gemini_connected message');
                 this.isConnected = true;
@@ -234,14 +236,16 @@ class GeminiNativeAudioChat {
                 this.connectBtn.disabled = true;
                 this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
                 break;
+                
             case 'gemini_disconnected':
                 this.addDebugInfo('Received gemini_disconnected message: ' + message.reason);
                 this.handleDisconnection(message.reason);
                 this.addMessage(`🔌 Disconnected from Gemini: ${message.reason}`, 'ai');
                 break;
+                
             case 'live_audio_chunk':
                 this.addDebugInfo(`🎵 Received live_audio_chunk. MimeType: ${message.mimeType}, Length: ${message.audioData?.length}`);
-            
+                
                 // Haptic feedback for first chunk
                 if (this.hapticFeedback && !this.liveAudioPlayer.isPlaying) {
                     try { 
@@ -264,28 +268,35 @@ class GeminiNativeAudioChat {
                     this.addDebugInfo(`❌ Invalid audio chunk - Data: ${!!message.audioData}, MimeType: ${message.mimeType}`);
                 }
                 break;
+                
             case 'audio_stream_complete':
                 this.addDebugInfo('🏁 Audio stream complete - finalizing');
                 this.liveAudioPlayer.finalizeStream();
                 break;
+                
             case 'text_response':
                 this.addMessage('🤖 ' + message.text, 'ai');
                 break;
+                
             case 'error':
                 this.addDebugInfo(`❌ Server error: ${message.message}`);
                 this.updateStatus(message.message, 'error');
                 break;
+                
             case 'gemini_setup_complete':
                 this.addDebugInfo('✅ Gemini setup complete');
                 break;
+                
             case 'input_transcription':
                 this.addDebugInfo(`🎤 Input: ${message.text}`);
                 this.addMessage(`🎤 You: ${message.text}`, 'user');
                 break;
+                
             case 'output_transcription':
                 this.addDebugInfo(`🤖 Output: ${message.text}`);
                 this.addMessage(`🤖 AI: ${message.text}`, 'ai');
                 break;
+                
             default:
                 this.addDebugInfo(`❓ Unknown message type: ${message.type} (Full message: ${JSON.stringify(message).substring(0, 200)})`);
                 console.warn('Unknown message:', message);
