@@ -376,8 +376,22 @@ class GeminiNativeAudioChat {
                 break;
                 
             case 'turn_complete':
-                this.addDebugInfo('Turn completed');
-                this.finalizeAudioStream();
+                this.addDebugInfo('Turn completed by Gemini. Processing accumulated audio for the turn.');
+                if (this.currentTurnAudioData.length > 0) {
+                    const combinedBase64Pcm = this.currentTurnAudioData.join('');
+                    this.currentTurnAudioData = []; // Clear for next turn
+                    
+                    const binaryString = window.atob(combinedBase64Pcm);
+                    const len = binaryString.length;
+                    const pcmDataArray = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        pcmDataArray[i] = binaryString.charCodeAt(i);
+                    }
+                    this.playRawPcmData(pcmDataArray); // Play the full turn's audio
+                } else {
+                    this.addDebugInfo('No audio data accumulated for this turn.');
+                }
+                // this.finalizeAudioStream(); // This line was causing the error and is removed
                 break;
             
             case 'gemini_setup_complete':
