@@ -296,8 +296,8 @@
                 debugLog('Loading GeminiTelegramClient...');
                 updateStatus('Loading client components...');
                 
-                await loadScript('./gemini_telegram_client_v3.js', 15000);
-                debugLog('GeminiTelegramClient loaded successfully');
+                await loadScript('./gemini_telegram_client_v3_patch.js', 15000);
+                debugLog('GeminiTelegramClient (patched) loaded successfully');
 
                 // Create the client manually
                 debugLog('Creating GeminiTelegramClient instance...');
