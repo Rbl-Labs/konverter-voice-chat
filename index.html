@@ -611,6 +611,24 @@
                     }
                 }, 3000);
                 
+                // Add user-friendly permission handler
+                function requestMicrophonePermission() {
+                    // Show user-friendly instructions
+                    if (window.geminiClient && window.geminiClient.audioBridge) {
+                        // Try to initialize audio bridge on user tap
+                        document.addEventListener('touchstart', async () => {
+                            try {
+                                await window.geminiClient.audioBridge.initialize();
+                            } catch (error) {
+                                alert('Please allow microphone access in your browser settings, then refresh the page.');
+                            }
+                        }, { once: true });
+                    }
+                }
+                
+                // Call this after client initialization
+                setTimeout(requestMicrophonePermission, 2000);
+                
             } catch (error) {
                 window.initializationStatus = 'failed';
                 debugLog('App initialization failed', true, error.message);
