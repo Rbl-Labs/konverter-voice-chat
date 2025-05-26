@@ -558,14 +558,9 @@
                 debugLog('Loading TelegramAudioBridge...');
                 updateStatus('Loading audio components...');
                 
-                try {
-                    await loadScript('./telegram_audio_bridge.js', 15000);
-                    debugLog('TelegramAudioBridge loaded successfully');
-                } catch (error) {
-                    debugLog('Failed to load TelegramAudioBridge', true, error.message);
-                    throw new Error('Audio components failed to load: ' + error.message);
-                }
-
+                await loadScript('./telegram_audio_bridge.js', 15000);
+                debugLog('TelegramAudioBridge loaded successfully');
+                
                 // Verify TelegramAudioBridge is available
                 if (typeof TelegramAudioBridge === 'undefined') {
                     throw new Error('TelegramAudioBridge not defined after loading');
@@ -575,26 +570,46 @@
                 debugLog('Loading GeminiTelegramClient...');
                 updateStatus('Loading client components...');
                 
-                try {
-                    await loadScript('./gemini_telegram_client.js', 15000);
-                    debugLog('GeminiTelegramClient loaded successfully');
-                } catch (error) {
-                    debugLog('Failed to load GeminiTelegramClient', true, error.message);
-                    throw new Error('Client components failed to load: ' + error.message);
+                await loadScript('./gemini_telegram_client.js', 15000);
+                debugLog('GeminiTelegramClient loaded successfully');
+
+                // IMPORTANT: Wait for DOM to be ready, then manually create client
+                debugLog('Creating GeminiTelegramClient instance...');
+                updateStatus('Initializing client...');
+                
+                // Create the client manually instead of waiting for DOMContentLoaded
+                if (typeof GeminiTelegramClient !== 'undefined') {
+                    window.geminiClient = new GeminiTelegramClient();
+                    debugLog('GeminiTelegramClient instance created successfully');
+                } else {
+                    throw new Error('GeminiTelegramClient class not available');
                 }
 
-                // Wait a bit for initialization
-                debugLog('Waiting for client initialization...');
-                updateStatus('Initializing client...');
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                // Wait a bit for client to initialize
+                await new Promise(resolve => setTimeout(resolve, 2000));
 
-                // Check if client was created
+                // Verify client was created and is initializing
                 if (typeof window.geminiClient === 'undefined') {
-                    throw new Error('GeminiTelegramClient not initialized');
+                    throw new Error('GeminiClient instance not created');
                 }
 
                 window.initializationStatus = 'ready';
                 debugLog('App initialization completed successfully');
+                
+                // Add diagnostic check
+                setTimeout(() => {
+                    debugLog('Diagnostic check after 3 seconds:');
+                    debugLog('TelegramAudioBridge available: ' + (typeof TelegramAudioBridge !== 'undefined'));
+                    debugLog('GeminiTelegramClient available: ' + (typeof GeminiTelegramClient !== 'undefined'));
+                    debugLog('window.geminiClient exists: ' + (typeof window.geminiClient !== 'undefined'));
+                    
+                    if (typeof window.geminiClient !== 'undefined') {
+                        debugLog('Client state: ' + JSON.stringify({
+                            isInitialized: window.geminiClient.state?.isInitialized,
+                            isInitializing: window.geminiClient.state?.isInitializing
+                        }));
+                    }
+                }, 3000);
                 
             } catch (error) {
                 window.initializationStatus = 'failed';
