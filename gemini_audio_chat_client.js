@@ -1,3 +1,5 @@
+console.log('🔄 [VERSION CHECK] gemini_audio_chat_client.js v3.0 loaded at:', new Date().toISOString());
+console.log('🔄 [VERSION CHECK] handleWebSocketMessage method exists:', typeof GeminiNativeAudioChat.prototype.handleWebSocketMessage);
 class GeminiNativeAudioChat {
     constructor() {
         this.sessionToken = null;
