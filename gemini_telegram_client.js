@@ -1,22 +1,26 @@
 /**
- * Enhanced Gemini Telegram Client with improved mobile compatibility and error handling
- * Version: 2.0.0
+ * Modern Gemini Telegram Client with enhanced mobile compatibility and error handling
+ * Version: 3.0.0
+ * 
+ * Integrated with modern UI controller for Siri-like interface
  */
 
 class GeminiTelegramClient {
     constructor() {
-        console.log('🔄 [DEBUG] Enhanced GeminiTelegramClient constructor called');
+        console.log('🔄 [DEBUG] Modern GeminiTelegramClient v3 constructor called');
         
         try {
             this.config = {
                 debug: true,
                 reconnectAttempts: 3,
                 reconnectDelay: 2000,
-                sessionTimeout: 45000, // Increased timeout
+                sessionTimeout: 45000,
                 vadSilenceThreshold: 0.01,
                 vadRequiredSilenceDuration: 1500,
                 healthCheckInterval: 30000,
-                connectionRetryDelay: 1000
+                connectionRetryDelay: 1000,
+                audioFeedbackEnabled: true,
+                autoConnect: true // Automatically connect when mic is clicked
             };
             
             // Enhanced state management
@@ -33,11 +37,16 @@ class GeminiTelegramClient {
                 healthCheckTimer: null,
                 lastActivity: Date.now(),
                 connectionAttempts: 0,
-                maxConnectionAttempts: 5
+                maxConnectionAttempts: 5,
+                permissionState: 'unknown',
+                transcriptions: {
+                    input: '',
+                    output: ''
+                }
             };
             
-            // UI Elements with better error handling
-            this.ui = this.initializeUIElements();
+            // UI Controller
+            this.ui = window.uiController || null;
             
             // Initialize system
             this.initialize();
@@ -45,23 +54,6 @@ class GeminiTelegramClient {
         } catch (error) {
             this.handleCriticalError('Constructor failed', error);
         }
-    }
-    
-    initializeUIElements() {
-        const elements = {};
-        const requiredElements = [
-            'status', 'micButton', 'connectBtn', 'disconnectBtn', 
-            'conversationLog', 'sessionInfo', 'waveform'
-        ];
-        
-        for (const id of requiredElements) {
-            elements[id] = document.getElementById(id);
-            if (!elements[id]) {
-                this.log(`Warning: Element ${id} not found`, true);
-            }
-        }
-        
-        return elements;
     }
     
     async initialize() {
@@ -76,6 +68,11 @@ class GeminiTelegramClient {
                 throw new Error('TelegramAudioBridge is not available');
             }
             
+            // Check UI controller
+            if (!this.ui && window.uiController) {
+                this.ui = window.uiController;
+            }
+            
             // Initialize audio bridge with error handling
             this.audioBridge = new TelegramAudioBridge({
                 debug: this.config.debug,
@@ -87,6 +84,7 @@ class GeminiTelegramClient {
                 onPlaybackStart: () => this.handlePlaybackStart(),
                 onPlaybackEnd: () => this.handlePlaybackEnd(),
                 onVADSilenceDetected: () => this.handleVADSilenceDetected(),
+                onPermissionChange: (state) => this.handlePermissionChange(state),
                 onError: (error) => this.handleAudioError(error)
             });
             
@@ -111,26 +109,88 @@ class GeminiTelegramClient {
     
     setupUI() {
         try {
-            // Button event listeners with error handling
-            this.ui.micButton?.addEventListener('click', () => {
-                this.safeExecute(() => this.toggleRecording());
-            });
+            // Get mic button
+            const micButton = document.getElementById('micButton');
             
-            this.ui.connectBtn?.addEventListener('click', () => {
-                this.safeExecute(() => this.connectToWebSocket());
-            });
-            
-            this.ui.disconnectBtn?.addEventListener('click', () => {
-                this.safeExecute(() => this.disconnect());
-            });
-            
-            // Generate waveform
-            this.generateWaveBars();
+            if (micButton) {
+                micButton.addEventListener('click', () => {
+                    this.safeExecute(() => this.handleMicButtonClick());
+                });
+            }
             
             this.log('UI setup completed');
         } catch (error) {
             this.log('UI setup error: ' + error.message, true);
         }
+    }
+    
+    handleMicButtonClick() {
+        // If not connected, connect first
+        if (!this.state.isConnected && this.config.autoConnect) {
+            this.connectToWebSocket().then(() => {
+                // After connection, toggle recording
+                setTimeout(() => {
+                    this.toggleRecording();
+                }, 500);
+            });
+        } else {
+            // If already connected, just toggle recording
+            this.toggleRecording();
+        }
+    }
+    
+    updateUIForPermissionState(state) {
+        this.log(`Updating UI for permission state: ${state}`);
+        
+        if (this.ui) {
+            this.ui.updateStatus(`Microphone: ${state}`, state === 'granted' ? 'success' : (state === 'denied' ? 'error' : 'warning'));
+        }
+        
+        switch (state) {
+            case 'granted':
+                if (this.ui) {
+                    this.ui.updateMicButton(false, true);
+                }
+                break;
+                
+            case 'denied':
+                if (this.ui) {
+                    this.ui.updateMicButton(false, false);
+                    this.ui.addMessage('🎤 Microphone access is required for voice chat. Please check your browser settings and reload the page.', 'system');
+                }
+                
+                // Show permission guidance
+                const platform = this.detectPlatform();
+                window.showPermissionGuidance(platform);
+                break;
+                
+            case 'prompt':
+                if (this.ui) {
+                    this.ui.updateMicButton(false, true);
+                }
+                break;
+                
+            default:
+                if (this.ui) {
+                    this.ui.updateMicButton(false, false);
+                }
+        }
+    }
+    
+    detectPlatform() {
+        const ua = navigator.userAgent;
+        if (/iPhone|iPad|iPod/i.test(ua)) {
+            return 'ios';
+        } else if (/Android/i.test(ua)) {
+            return 'android';
+        } else {
+            return 'generic';
+        }
+    }
+    
+    handlePermissionChange(state) {
+        this.state.permissionState = state;
+        this.updateUIForPermissionState(state);
     }
     
     async initializeSession() {
@@ -165,8 +225,12 @@ class GeminiTelegramClient {
             // Process session data
             this.processSessionData(sessionData);
             
-            this.updateStatus('Session ready - Click Connect');
-            this.ui.connectBtn.disabled = false;
+            this.updateStatus('Session ready - Tap microphone to start', 'success');
+            
+            // Enable mic button
+            if (this.ui) {
+                this.ui.updateMicButton(false, true);
+            }
             
         } catch (error) {
             this.log(`Session initialization error: ${error.message}`, true);
@@ -229,7 +293,12 @@ class GeminiTelegramClient {
             }
             
             this.state.sessionConfig = data.config;
-            this.ui.sessionInfo.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
+            
+            // Update session info
+            const sessionInfoEl = document.getElementById('sessionInfo');
+            if (sessionInfoEl) {
+                sessionInfoEl.textContent = `Session: ${data.sessionId} | User: ${data.userId}`;
+            }
             
             this.log(`Session configured - Model: ${this.state.sessionConfig.model}, WebSocket: ${this.state.sessionConfig.websocketProxyUrl}`);
             
@@ -240,8 +309,7 @@ class GeminiTelegramClient {
     
     handleSessionInitTimeout() {
         this.log('Session initialization timed out', true);
-        this.updateStatus('Connection timed out - Click to retry', 'error');
-        this.showRetryButton();
+        this.updateStatus('Connection timed out - Tap to retry', 'error');
     }
     
     handleSessionInitError(error) {
@@ -252,25 +320,6 @@ class GeminiTelegramClient {
             clearTimeout(this.state.sessionInitTimer);
             this.state.sessionInitTimer = null;
         }
-        
-        // Show retry option after a delay
-        setTimeout(() => {
-            this.showRetryButton();
-        }, 2000);
-    }
-    
-    showRetryButton() {
-        this.updateStatus('Click Connect to retry', 'error');
-        this.ui.connectBtn.disabled = false;
-        this.ui.connectBtn.textContent = 'Retry Connection';
-        
-        // Reset button text after successful connection
-        const originalHandler = this.ui.connectBtn.onclick;
-        this.ui.connectBtn.onclick = () => {
-            this.ui.connectBtn.textContent = 'Connect';
-            this.ui.connectBtn.onclick = originalHandler;
-            this.safeExecute(() => this.connectToWebSocket());
-        };
     }
     
     async connectToWebSocket() {
@@ -279,19 +328,18 @@ class GeminiTelegramClient {
                 await this.initializeSession();
             } catch (error) {
                 this.log('Failed to initialize before connection', true);
-                return;
+                return false;
             }
         }
         
         if (this.state.connectionAttempts >= this.state.maxConnectionAttempts) {
             this.updateStatus('Too many connection attempts. Please refresh.', 'error');
-            return;
+            return false;
         }
         
         this.state.connectionAttempts++;
         
         try {
-            this.ui.connectBtn.disabled = true;
             this.log('Enhanced WebSocket connection starting...');
             this.updateStatus('Connecting to server...');
             
@@ -313,10 +361,27 @@ class GeminiTelegramClient {
             this.state.ws = new WebSocket(fullWsUrl);
             this.setupWebSocketHandlers();
             
+            // Wait for connection to be established
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error('Connection timeout'));
+                }, 10000);
+                
+                this.state.ws.onopen = () => {
+                    clearTimeout(timeout);
+                    resolve(true);
+                };
+                
+                this.state.ws.onerror = (error) => {
+                    clearTimeout(timeout);
+                    reject(error);
+                };
+            });
+            
         } catch (error) {
             this.log(`Connection error: ${error.message}`, true);
             this.updateStatus('Connection failed: ' + error.message, 'error');
-            this.ui.connectBtn.disabled = false;
+            return false;
         }
     }
     
@@ -370,7 +435,6 @@ class GeminiTelegramClient {
     
     handleConnectionFailure() {
         this.state.isConnected = false;
-        this.ui.connectBtn.disabled = false;
         
         // Attempt reconnection if appropriate
         if (this.state.reconnectCount < this.config.reconnectAttempts) {
@@ -415,7 +479,9 @@ class GeminiTelegramClient {
                     break;
                     
                 case 'text_response':
-                    this.addMessage('🤖 ' + message.text, 'ai');
+                    if (this.ui) {
+                        this.ui.addMessage(message.text, 'ai');
+                    }
                     break;
                     
                 case 'error':
@@ -423,16 +489,19 @@ class GeminiTelegramClient {
                     break;
                     
                 case 'input_transcription':
-                    this.addMessage(`🎤 You: ${message.text}`, 'user');
+                    this.handleInputTranscription(message);
+                    break;
+                    
+                case 'output_transcription':
+                    this.handleOutputTranscription(message);
                     break;
                     
                 case 'turn_complete':
-                    this.log('Turn complete');
+                    this.handleTurnComplete();
                     break;
                     
                 case 'interrupted':
-                    this.log('Model generation interrupted');
-                    this.audioBridge.stopPlayback();
+                    this.handleInterruption();
                     break;
                     
                 default:
@@ -456,18 +525,21 @@ class GeminiTelegramClient {
     handleGeminiConnected() {
         this.log('Gemini connected successfully');
         this.state.isConnected = true;
-        this.updateStatus('Connected! Click microphone to talk', 'connected');
-        this.ui.micButton.disabled = false;
-        this.ui.micButton.classList.add('connected');
-        this.ui.disconnectBtn.disabled = false;
-        this.ui.connectBtn.disabled = true;
-        this.addMessage('🤖 Connected! I can hear you now. Click the microphone to start talking!', 'ai');
+        this.updateStatus('Connected! Tap microphone to talk', 'connected');
+        
+        if (this.ui) {
+            this.ui.updateMicButton(false, true);
+            this.ui.addMessage('🤖 Connected! I can hear you now. Tap the microphone to start talking!', 'ai');
+        }
     }
     
     handleGeminiDisconnected(reason) {
         this.log(`Gemini disconnected: ${reason}`);
         this.handleDisconnection(reason);
-        this.addMessage(`🔌 Disconnected from Gemini: ${reason}`, 'ai');
+        
+        if (this.ui) {
+            this.ui.addMessage(`🔌 Disconnected from Gemini: ${reason}`, 'system');
+        }
     }
     
     handleAudioResponse(message) {
@@ -476,12 +548,65 @@ class GeminiTelegramClient {
         if (message.audioData && message.mimeType) {
             try {
                 this.audioBridge.playAudio(message.audioData, message.mimeType);
-                this.animateWaveformForAudio();
+                
+                // Activate AI circle animation
+                if (this.ui) {
+                    this.ui.setAISpeaking(true);
+                }
             } catch (error) {
                 this.log(`Audio playback error: ${error.message}`, true);
             }
         } else {
             this.log('Invalid audio response format', true);
+        }
+    }
+    
+    handleInputTranscription(message) {
+        if (message.text) {
+            this.state.transcriptions.input = message.text;
+            
+            // Update UI
+            if (this.ui) {
+                this.ui.updateInputTranscription(message.text);
+                this.ui.addMessage(`🎤 You: ${message.text}`, 'user');
+            }
+        }
+    }
+    
+    handleOutputTranscription(message) {
+        if (message.text) {
+            this.state.transcriptions.output = message.text;
+            
+            // Update UI
+            if (this.ui) {
+                this.ui.updateOutputTranscription(message.text);
+            }
+        }
+    }
+    
+    handleTurnComplete() {
+        this.log('Turn complete');
+        
+        // Reset transcriptions
+        this.state.transcriptions.input = '';
+        this.state.transcriptions.output = '';
+        
+        // Hide transcription displays after a delay
+        setTimeout(() => {
+            if (this.ui) {
+                this.ui.clearTranscriptions();
+            }
+        }, 3000);
+    }
+    
+    handleInterruption() {
+        this.log('Model generation interrupted');
+        this.audioBridge.stopPlayback();
+        
+        // Stop AI speaking animation
+        if (this.ui) {
+            this.ui.setAISpeaking(false);
+            this.ui.addMessage('(interrupted)', 'system');
         }
     }
     
@@ -491,48 +616,45 @@ class GeminiTelegramClient {
     }
     
     async toggleRecording() {
-        if (!this.state.isConnected) {
-            this.updateStatus('Please connect first', 'error');
-            return;
+        if (!this.state.isConnected && this.config.autoConnect) {
+            try {
+                await this.connectToWebSocket();
+            } catch (error) {
+                this.updateStatus('Please connect first', 'error');
+                return;
+            }
         }
         
         try {
             if (this.audioBridge.isRecording) {
                 await this.audioBridge.stopRecording();
-                this.ui.micButton.classList.remove('recording');
-                this.ui.micButton.innerHTML = '🎤';
-                this.updateStatus('Connected! Click microphone to talk', 'connected');
+                
+                if (this.ui) {
+                    this.ui.updateMicButton(false);
+                    this.ui.setUserSpeaking(false);
+                }
+                
+                this.updateStatus('Connected! Tap microphone to talk', 'connected');
             } else {
-                // Mobile audio unlock attempt - with more retries
-                if (!this.audioBridge.audioUnlocked || !this.audioBridge.initialized) {
-                    this.log('Attempting to initialize audio with retry...');
+                // Initialize audio if needed
+                if (!this.audioBridge.initialized) {
+                    this.log('Initializing audio before recording...');
+                    const initialized = await this.audioBridge.initialize();
                     
-                    // Reset initialization attempts to give it another chance
-                    if (this.audioBridge.state) {
-                        this.audioBridge.state.initializationAttempts = 0;
-                    }
-                    
-                    const unlocked = await this.audioBridge.initialize();
-                    if (!unlocked) {
-                        // Show more user-friendly message with instructions
-                        this.updateStatus('Audio access denied. Please check permissions.', 'error');
-                        
-                        // Add alert for mobile users with instructions
-                        if (this.audioBridge.state.isMobile) {
-                            setTimeout(() => {
-                                alert('Please allow microphone access in your browser settings, then try again. On iOS, you may need to tap the "AA" button in the address bar and select "Website Settings" to enable the microphone.');
-                            }, 500);
-                        }
+                    if (!initialized) {
+                        this.updateStatus('Audio initialization failed. Check permissions.', 'error');
                         return;
                     }
                 }
                 
                 const started = await this.audioBridge.startRecording();
                 if (started) {
-                    this.ui.micButton.classList.add('recording');
-                    this.ui.micButton.innerHTML = '⏹️';
+                    if (this.ui) {
+                        this.ui.updateMicButton(true);
+                        this.ui.setUserSpeaking(true);
+                    }
+                    
                     this.updateStatus('Listening... Speak now', 'recording');
-                    this.startWaveAnimation();
                 } else {
                     this.updateStatus('Failed to start recording', 'error');
                 }
@@ -546,12 +668,18 @@ class GeminiTelegramClient {
     // Audio event handlers
     handleAudioStart() {
         this.log('Audio recording started');
-        this.startWaveAnimation();
+        
+        if (this.ui) {
+            this.ui.setUserSpeaking(true);
+        }
     }
     
     handleAudioEnd() {
         this.log('Audio recording ended');
-        this.stopWaveAnimation();
+        
+        if (this.ui) {
+            this.ui.setUserSpeaking(false);
+        }
     }
     
     handleAudioData(audioData, isEndOfSpeech) {
@@ -578,58 +706,27 @@ class GeminiTelegramClient {
     
     handlePlaybackStart() {
         this.log('Audio playback started');
+        
+        if (this.ui) {
+            this.ui.setAISpeaking(true);
+        }
     }
     
     handlePlaybackEnd() {
         this.log('Audio playback ended');
+        
+        if (this.ui) {
+            this.ui.setAISpeaking(false);
+        }
     }
     
     handleVADSilenceDetected() {
-        this.log('VAD silence detected');
+        this.log('VAD silence detected - End of speech');
     }
     
     handleAudioError(error) {
         this.log(`Audio error: ${error.message}`, true);
         this.updateStatus(`Audio error: ${error.message}`, 'error');
-    }
-    
-    // Animation functions
-    startWaveAnimation() {
-        this.log('Wave animation started');
-    }
-    
-    stopWaveAnimation() {
-        const bars = this.ui.waveform?.querySelectorAll('.wave-bar');
-        if (bars) {
-            bars.forEach(bar => bar.style.height = '10px');
-        }
-        this.log('Wave animation stopped');
-    }
-    
-    animateWaveformForAudio() {
-        const bars = this.ui.waveform?.querySelectorAll('.wave-bar');
-        if (bars) {
-            bars.forEach(bar => {
-                const height = Math.max(5, Math.random() * 40);
-                bar.style.height = `${height}px`;
-                
-                setTimeout(() => {
-                    bar.style.height = '10px';
-                }, 300);
-            });
-        }
-    }
-    
-    generateWaveBars() {
-        if (!this.ui.waveform) return;
-        
-        this.ui.waveform.innerHTML = '';
-        for (let i = 0; i < 50; i++) {
-            const bar = document.createElement('div');
-            bar.className = 'wave-bar';
-            bar.style.height = '10px';
-            this.ui.waveform.appendChild(bar);
-        }
     }
     
     // Connection management
@@ -660,12 +757,13 @@ class GeminiTelegramClient {
         }
         
         // Update UI
-        this.ui.micButton.disabled = true;
-        this.ui.micButton.classList.remove('connected', 'recording');
-        this.ui.micButton.innerHTML = '🎤';
-        this.ui.connectBtn.disabled = false;
-        this.ui.disconnectBtn.disabled = true;
-        this.updateStatus(`Disconnected: ${reason}. Click Connect.`, 'error');
+        if (this.ui) {
+            this.ui.setUserSpeaking(false);
+            this.ui.setAISpeaking(false);
+            this.ui.updateMicButton(false, true);
+        }
+        
+        this.updateStatus(`Disconnected: ${reason}. Tap mic to reconnect.`, 'error');
     }
     
     // Health monitoring
@@ -687,29 +785,18 @@ class GeminiTelegramClient {
     
     // UI helpers
     updateStatus(message, type = '') {
-        if (this.ui.status) {
-            this.ui.status.textContent = message;
-            this.ui.status.className = 'status ' + type;
+        if (this.ui) {
+            this.ui.updateStatus(message, type);
+        } else {
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.className = 'status ' + type;
+            }
         }
         
         // Also log status changes
         this.log(`Status: ${message} (${type})`);
-    }
-    
-    addMessage(text, sender) {
-        if (!this.ui.conversationLog) return;
-        
-        const messageEl = document.createElement('div');
-        messageEl.className = `message ${sender}`;
-        messageEl.textContent = text;
-        
-        const avatarEl = document.createElement('div');
-        avatarEl.className = 'message-avatar';
-        avatarEl.textContent = sender === 'ai' ? 'K' : 'U';
-        messageEl.appendChild(avatarEl);
-        
-        this.ui.conversationLog.appendChild(messageEl);
-        this.ui.conversationLog.scrollTop = this.ui.conversationLog.scrollHeight;
     }
     
     // Error handling
@@ -756,30 +843,17 @@ class GeminiTelegramClient {
     }
     
     // Logging
-    log(...args) {
+    log(message, isError = false, data = null) {
         if (this.config.debug) {
-            console.log('[Enhanced GeminiTelegramClient]', ...args);
+            const logMethod = isError ? console.error : console.log;
+            logMethod('[Modern GeminiTelegramClient]', message, data || '');
             
             // Global debug system integration
             if (typeof window.debugLog === 'function') {
-                const message = args.map(arg => {
-                    if (typeof arg === 'object') {
-                        try {
-                            return JSON.stringify(arg);
-                        } catch (e) {
-                            return '[Object]';
-                        }
-                    }
-                    return arg;
-                }).join(' ');
-                
-                window.debugLog(`[Client] ${message}`, args.some(arg => 
-                    typeof arg === 'string' && arg.toLowerCase().includes('error')
-                ));
+                window.debugLog(`[Client] ${message}`, isError, data);
             }
         }
     }
 }
 
 // The instance will be created by the main HTML initialization function
-// No need for DOMContentLoaded listener since we're creating the instance manually

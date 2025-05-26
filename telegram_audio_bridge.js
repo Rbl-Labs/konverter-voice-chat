@@ -1,6 +1,6 @@
 /**
- * Enhanced TelegramAudioBridge with improved mobile compatibility and error handling
- * Version: 2.0.0 
+ * Modern TelegramAudioBridge with enhanced mobile compatibility and permission handling
+ * Version: 3.0.0
  */
 
 class TelegramAudioBridge {
@@ -9,6 +9,7 @@ class TelegramAudioBridge {
             debug: options.debug || false,
             audioBufferSize: options.audioBufferSize || 4096,
             sampleRate: options.sampleRate || 16000,
+            outputSampleRate: options.outputSampleRate || 24000, // Gemini outputs at 24kHz
             channels: options.channels || 1,
             enableEchoCancellation: options.enableEchoCancellation !== false,
             enableNoiseSuppression: options.enableNoiseSuppression !== false,
@@ -20,6 +21,7 @@ class TelegramAudioBridge {
             maxRetries: options.maxRetries || 3,
             retryDelay: options.retryDelay || 1000,
             audioTimeout: options.audioTimeout || 10000,
+            permissionTimeout: options.permissionTimeout || 15000,
             ...options
         };
 
@@ -28,13 +30,16 @@ class TelegramAudioBridge {
             initialized: false,
             isRecording: false,
             isPlaying: false,
-            isMobile: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent),
+            isMobile: this._detectMobileDevice(),
+            isIOS: this._detectIOSDevice(),
             audioUnlocked: false,
+            permissionState: 'unknown', // 'unknown', 'granted', 'denied', 'prompt'
             recordingStartTime: null,
             playbackQueue: [],
             currentAudio: null,
             initializationAttempts: 0,
-            maxInitializationAttempts: 3
+            maxInitializationAttempts: 3,
+            permissionPromptDisplayed: false
         };
         
         // Telegram integration
@@ -52,7 +57,8 @@ class TelegramAudioBridge {
             audioPool: [],
             worklet: null,
             analyser: null,
-            dataArray: null
+            dataArray: null,
+            gainNode: null
         };
         
         // VAD (Voice Activity Detection) components
@@ -60,7 +66,9 @@ class TelegramAudioBridge {
             currentEnergy: 0.0,
             silenceStartTime: 0,
             monitoringInterval: null,
-            isMonitoring: false
+            isMonitoring: false,
+            consecutiveSilenceFrames: 0,
+            minSilenceFrames: Math.ceil(this.config.vadRequiredSilenceDuration / 100) // 100ms per frame
         };
         
         // Event callbacks with error handling
@@ -71,11 +79,13 @@ class TelegramAudioBridge {
             onPlaybackStart: this.safeCallback(options.onPlaybackStart),
             onPlaybackEnd: this.safeCallback(options.onPlaybackEnd),
             onVADSilenceDetected: this.safeCallback(options.onVADSilenceDetected),
+            onPermissionChange: this.safeCallback(options.onPermissionChange),
             onError: this.safeCallback(options.onError, (error) => console.error('TelegramAudioBridge error:', error))
         };
         
-        this.log('Enhanced TelegramAudioBridge initialized', {
+        this.log('Modern TelegramAudioBridge initialized', {
             mobile: this.state.isMobile,
+            ios: this.state.isIOS,
             telegramAvailable: this.telegram.isAvailable,
             config: this.config
         });
@@ -86,12 +96,16 @@ class TelegramAudioBridge {
         // Create audio pool
         this._createAudioPool();
         
-        // Auto-initialize on first user interaction if mobile
-        if (this.state.isMobile) {
-            this._setupAutoInitialization();
-        }
+        // Check permission status immediately
+        this._checkPermissionStatus();
+        
+        // Auto-initialize on first user interaction
+        this._setupAutoInitialization();
     }
     
+    /**
+     * Safe callback wrapper to prevent errors
+     */
     safeCallback(callback, defaultCallback = null) {
         return (...args) => {
             try {
@@ -106,6 +120,10 @@ class TelegramAudioBridge {
         };
     }
     
+    /**
+     * Initialize the audio bridge
+     * This is the main entry point for setting up audio
+     */
     async initialize() {
         if (this.state.initialized) return true;
         
@@ -123,6 +141,23 @@ class TelegramAudioBridge {
             // Create audio context with mobile optimization
             await this._createAudioContext();
             
+            // Check permission status
+            await this._checkPermissionStatus();
+            
+            // If permission is denied, show guidance
+            if (this.state.permissionState === 'denied') {
+                this._showPermissionGuidance();
+                throw new Error('Microphone permission denied');
+            }
+            
+            // If permission is unknown or prompt, request it
+            if (this.state.permissionState === 'unknown' || this.state.permissionState === 'prompt') {
+                const permissionGranted = await this._requestMicrophoneAccess();
+                if (!permissionGranted) {
+                    throw new Error('Failed to get microphone permission');
+                }
+            }
+            
             // Unlock audio on mobile
             if (this.state.isMobile) {
                 const unlocked = await this._unlockAudioOnMobile();
@@ -131,41 +166,12 @@ class TelegramAudioBridge {
                 }
             }
             
-            // Request microphone permissions with enhanced constraints - IMMEDIATELY
-            try {
-                // Force immediate permission prompt
-                this.log('Requesting microphone access immediately...');
-                await this._requestMicrophoneAccess();
-                
-                // Setup audio analysis for VAD
-                this._setupAudioAnalysis();
-                
-                this.state.initialized = true;
-                this.log('Enhanced TelegramAudioBridge successfully initialized');
-                return true;
-            } catch (micError) {
-                // Special handling for permission errors
-                if (micError.message && (
-                    micError.message.includes('permission') || 
-                    micError.message.includes('denied') || 
-                    micError.message.includes('NotAllowedError')
-                )) {
-                    this.log('Microphone permission denied:', micError, true);
-                    
-                    // On iOS, show specific instructions
-                    if (this.state.isMobile && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
-                        if (typeof window.debugLog === 'function') {
-                            window.debugLog('[AudioBridge] iOS microphone permission denied. Showing instructions.', true);
-                        }
-                        
-                        // Throw specific error for better handling
-                        throw new Error('iOS microphone permission denied. Please check browser settings.');
-                    }
-                }
-                
-                // Re-throw other errors
-                throw micError;
-            }
+            // Setup audio analysis for VAD
+            this._setupAudioAnalysis();
+            
+            this.state.initialized = true;
+            this.log('Modern TelegramAudioBridge successfully initialized');
+            return true;
             
         } catch (error) {
             this.log('Initialization failed:', error, true);
@@ -183,6 +189,9 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Create the audio context with appropriate settings
+     */
     async _createAudioContext() {
         try {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -201,14 +210,19 @@ class TelegramAudioBridge {
             // Create audio context
             this.audio.context = new AudioContext(contextOptions);
             
-            // Mobile Safari requires user interaction to resume audio context
-            if (this.state.isMobile && this.audio.context.state === 'suspended') {
-                document.addEventListener('touchstart', async () => {
-                    if (this.audio.context.state === 'suspended') {
-                        await this.audio.context.resume();
-                        this.log('Audio context resumed after user interaction');
-                    }
-                }, { once: true });
+            // Create gain node for volume control
+            this.audio.gainNode = this.audio.context.createGain();
+            this.audio.gainNode.gain.value = 1.0;
+            this.audio.gainNode.connect(this.audio.context.destination);
+            
+            // Resume audio context if suspended
+            if (this.audio.context.state === 'suspended') {
+                try {
+                    await this.audio.context.resume();
+                    this.log('Audio context resumed during creation');
+                } catch (e) {
+                    this.log('Could not resume audio context during creation, will try later', false);
+                }
             }
             
             this.log('Audio context created successfully', {
@@ -221,9 +235,70 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Check the current microphone permission status
+     */
+    async _checkPermissionStatus() {
+        try {
+            // Only available in secure contexts and modern browsers
+            if (navigator.permissions && navigator.permissions.query) {
+                const result = await navigator.permissions.query({ name: 'microphone' });
+                this.state.permissionState = result.state;
+                
+                // Listen for permission changes
+                result.onchange = () => {
+                    this.state.permissionState = result.state;
+                    this.log(`Permission state changed to: ${result.state}`);
+                    this.callbacks.onPermissionChange(result.state);
+                };
+                
+                this.log(`Current microphone permission state: ${this.state.permissionState}`);
+                return this.state.permissionState;
+            } else {
+                // Fallback for browsers that don't support permissions API
+                this.log('Permissions API not available, assuming permission prompt required');
+                this.state.permissionState = 'prompt';
+                return 'prompt';
+            }
+        } catch (error) {
+            this.log('Error checking permission status:', error, false);
+            this.state.permissionState = 'unknown';
+            return 'unknown';
+        }
+    }
+    
+    /**
+     * Show guidance for enabling microphone permissions
+     * This is platform-specific
+     */
+    _showPermissionGuidance() {
+        if (this.state.permissionPromptDisplayed) return;
+        
+        let message = 'Microphone access is required for voice chat. ';
+        
+        if (this.state.isIOS) {
+            message += 'On iOS, tap the "AA" button in the address bar, then select "Website Settings" and enable the microphone.';
+        } else if (this.state.isMobile) {
+            message += 'Please check your browser settings to allow microphone access for this site.';
+        } else {
+            message += 'Please click the camera/microphone icon in your browser\'s address bar and allow access.';
+        }
+        
+        // Use Telegram's native alert if available
+        if (this.telegram.webApp && this.telegram.webApp.showAlert) {
+            this.telegram.webApp.showAlert(message);
+        } else {
+            alert(message);
+        }
+        
+        this.state.permissionPromptDisplayed = true;
+    }
+    
+    /**
+     * Request microphone access with enhanced error handling
+     */
     async _requestMicrophoneAccess() {
         try {
-            // Force permission dialog to appear immediately
             this.log('Explicitly requesting microphone permission...');
             
             // Enhanced constraints for better mobile compatibility
@@ -248,40 +323,68 @@ class TelegramAudioBridge {
                 constraints.audio.googHighpassFilter = true;
             }
             
+            // Create a timeout promise
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Permission request timed out')), this.config.permissionTimeout);
+            });
+            
             // Force immediate permission prompt by directly calling getUserMedia
+            let permissionPromise;
             if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
                 this.log('Using navigator.mediaDevices.getUserMedia for permissions');
-                this.audio.audioStream = await navigator.mediaDevices.getUserMedia(constraints);
+                permissionPromise = navigator.mediaDevices.getUserMedia(constraints);
             } else if (navigator.getUserMedia) {
                 // Legacy API fallback
                 this.log('Using legacy navigator.getUserMedia API');
-                this.audio.audioStream = await new Promise((resolve, reject) => {
+                permissionPromise = new Promise((resolve, reject) => {
                     navigator.getUserMedia(constraints, resolve, reject);
                 });
             } else {
                 throw new Error('No getUserMedia support available on this browser');
             }
             
+            // Race the permission request against the timeout
+            this.audio.audioStream = await Promise.race([permissionPromise, timeoutPromise]);
+            
+            // Update permission state
+            this.state.permissionState = 'granted';
+            this.callbacks.onPermissionChange('granted');
+            
             this.log('Microphone access granted', {
                 tracks: this.audio.audioStream.getTracks().length,
                 settings: this.audio.audioStream.getTracks()[0]?.getSettings()
             });
             
+            return true;
+            
         } catch (error) {
             // Specific error handling for permission denials
             if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
                 this.log('Microphone permission explicitly denied by user', true);
+                this.state.permissionState = 'denied';
+                this.callbacks.onPermissionChange('denied');
+                this._showPermissionGuidance();
                 throw new Error('Microphone permission denied by user. Please check browser settings.');
+            } else if (error.message === 'Permission request timed out') {
+                this.log('Microphone permission request timed out', true);
+                throw new Error('Permission request timed out. Please try again.');
             } else {
+                this.log(`Failed to access microphone: ${error.message}`, true);
                 throw new Error(`Failed to access microphone: ${error.message}`);
             }
+            
+            return false;
         }
     }
     
+    /**
+     * Setup audio analysis for VAD
+     */
     _setupAudioAnalysis() {
         try {
             this.audio.analyser = this.audio.context.createAnalyser();
-            this.audio.analyser.fftSize = 256;
+            this.audio.analyser.fftSize = 1024; // Increased for better frequency resolution
+            this.audio.analyser.smoothingTimeConstant = 0.8; // Smoother analysis
             this.audio.dataArray = new Uint8Array(this.audio.analyser.frequencyBinCount);
             
             this.log('Audio analysis setup completed');
@@ -290,6 +393,9 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Start recording audio
+     */
     async startRecording() {
         try {
             if (!this.state.initialized) {
@@ -304,6 +410,7 @@ class TelegramAudioBridge {
             // Resume audio context if suspended
             if (this.audio.context.state === 'suspended') {
                 await this.audio.context.resume();
+                this.log('Audio context resumed before recording');
             }
             
             // Connect microphone to analyzer for VAD
@@ -393,6 +500,9 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Stop recording audio
+     */
     async stopRecording() {
         if (!this.state.isRecording) return true;
         
@@ -428,6 +538,10 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Play audio from base64 string
+     * Enhanced to handle Gemini's 24kHz PCM audio output
+     */
     async playAudio(base64Audio, mimeType = 'audio/pcm;rate=24000') {
         try {
             if (!base64Audio || base64Audio.length === 0) {
@@ -443,6 +557,12 @@ class TelegramAudioBridge {
             // Convert base64 to array buffer
             const audioBuffer = this._base64ToArrayBuffer(base64Audio);
             
+            // Check if this is PCM audio from Gemini (which needs special handling)
+            if (mimeType.includes('pcm')) {
+                return this._playPCMAudio(audioBuffer, mimeType);
+            }
+            
+            // For other formats (WAV, MP3, etc.), use standard audio element playback
             // Create blob with appropriate MIME type
             let finalMimeType = mimeType;
             
@@ -484,6 +604,71 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Play PCM audio using Web Audio API
+     * Specifically designed for Gemini's 24kHz PCM output
+     */
+    async _playPCMAudio(audioBuffer, mimeType) {
+        try {
+            // Extract sample rate from mime type (default to 24000 for Gemini)
+            const sampleRateMatch = mimeType.match(/rate=(\d+)/);
+            const sampleRate = sampleRateMatch ? parseInt(sampleRateMatch[1]) : this.config.outputSampleRate;
+            
+            this.log(`Playing PCM audio with sample rate: ${sampleRate}Hz`);
+            
+            // Resume audio context if suspended
+            if (this.audio.context.state === 'suspended') {
+                await this.audio.context.resume();
+            }
+            
+            // Convert the raw PCM buffer to an AudioBuffer
+            const audioArrayBuffer = audioBuffer.buffer;
+            const pcmData = new Int16Array(audioArrayBuffer);
+            
+            // Convert Int16Array to Float32Array for Web Audio API
+            const floatData = new Float32Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i++) {
+                // Convert from 16-bit integer to float
+                floatData[i] = pcmData[i] / 32768.0;
+            }
+            
+            // Create an AudioBuffer with the correct sample rate
+            const audioCtxBuffer = this.audio.context.createBuffer(1, floatData.length, sampleRate);
+            
+            // Fill the AudioBuffer with our float data
+            const channelData = audioCtxBuffer.getChannelData(0);
+            channelData.set(floatData);
+            
+            // Create a source node
+            const source = this.audio.context.createBufferSource();
+            source.buffer = audioCtxBuffer;
+            
+            // Connect to gain node for volume control
+            source.connect(this.audio.gainNode);
+            
+            // Set up callbacks
+            this.callbacks.onPlaybackStart();
+            this.state.isPlaying = true;
+            
+            source.onended = () => {
+                this.state.isPlaying = false;
+                this.callbacks.onPlaybackEnd();
+            };
+            
+            // Start playback
+            source.start();
+            this._triggerHapticFeedback('light');
+            
+            return true;
+        } catch (error) {
+            this.log('PCM audio playback error:', error, true);
+            return false;
+        }
+    }
+    
+    /**
+     * Configure audio element for playback
+     */
     _configureAudioElement(audio) {
         // Reset audio element
         audio.currentTime = 0;
@@ -518,6 +703,9 @@ class TelegramAudioBridge {
         });
     }
     
+    /**
+     * Process the audio playback queue
+     */
     async _processPlaybackQueue() {
         if (this.state.playbackQueue.length === 0) {
             this.state.isPlaying = false;
@@ -546,6 +734,9 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Play a single audio item from the queue
+     */
     async _playAudioItem(audioItem, retryCount = 0) {
         const maxRetries = this.config.maxRetries;
         
@@ -602,6 +793,9 @@ class TelegramAudioBridge {
         });
     }
     
+    /**
+     * Stop all audio playback
+     */
     stopPlayback() {
         this.log('Stopping all playback');
         
@@ -623,17 +817,25 @@ class TelegramAudioBridge {
         this.callbacks.onPlaybackEnd();
     }
     
+    /**
+     * Clean up an audio item
+     */
     _cleanupAudioItem(item) {
         if (item.url) URL.revokeObjectURL(item.url);
         if (item.audio) this._returnAudioToPool(item.audio);
     }
     
     // VAD (Voice Activity Detection) methods
+    /**
+     * Start VAD monitoring
+     * Enhanced with better silence detection
+     */
     _startVADMonitoring() {
         this._stopVADMonitoring();
         this.vad.silenceStartTime = 0;
         this.vad.currentEnergy = 0.0;
         this.vad.isMonitoring = true;
+        this.vad.consecutiveSilenceFrames = 0;
         
         if (!this.audio.analyser) {
             this.log('VAD: Analyser not ready');
@@ -644,9 +846,13 @@ class TelegramAudioBridge {
         
         this.vad.monitoringInterval = setInterval(() => {
             this._checkVAD();
-        }, 100);
+        }, 100); // Check every 100ms
     }
     
+    /**
+     * Check VAD for silence detection
+     * Enhanced with better energy calculation and frame counting
+     */
     _checkVAD() {
         if (!this.state.isRecording || !this.audio.analyser || !this.audio.dataArray || !this.vad.isMonitoring) {
             return;
@@ -655,32 +861,48 @@ class TelegramAudioBridge {
         try {
             this.audio.analyser.getByteFrequencyData(this.audio.dataArray);
             
+            // Calculate energy focusing on speech frequencies (300Hz-3000Hz)
+            // For 16kHz sample rate with 1024 FFT size, this is roughly bins 20-180
+            const speechStart = Math.floor(300 * this.audio.analyser.fftSize / this.audio.context.sampleRate);
+            const speechEnd = Math.floor(3000 * this.audio.analyser.fftSize / this.audio.context.sampleRate);
+            
             let sum = 0;
-            for (let i = 0; i < this.audio.dataArray.length; i++) {
+            let count = 0;
+            
+            for (let i = speechStart; i < speechEnd && i < this.audio.dataArray.length; i++) {
                 sum += this.audio.dataArray[i];
+                count++;
             }
             
-            const average = this.audio.dataArray.length > 0 ? sum / this.audio.dataArray.length : 0;
+            const average = count > 0 ? sum / count : 0;
             const normalizedEnergy = average / 255;
             
             // Smooth the energy value
             this.vad.currentEnergy = (this.vad.currentEnergy * (1 - this.config.vadEnergySmoothing)) + 
                                    (normalizedEnergy * this.config.vadEnergySmoothing);
             
-            // Check for silence
+            // Check for silence with frame counting for stability
             if (this.vad.currentEnergy < this.config.vadSilenceThreshold) {
+                this.vad.consecutiveSilenceFrames++;
+                
                 if (this.vad.silenceStartTime === 0) {
                     this.vad.silenceStartTime = Date.now();
                 }
                 
                 const silenceDuration = Date.now() - this.vad.silenceStartTime;
-                if (silenceDuration >= this.config.vadRequiredSilenceDuration) {
-                    this.log(`VAD: End of speech detected. Silence: ${silenceDuration}ms`);
+                
+                // Detect end of speech when we have enough consecutive silent frames
+                // AND the total silence duration exceeds our threshold
+                if (this.vad.consecutiveSilenceFrames >= this.vad.minSilenceFrames && 
+                    silenceDuration >= this.config.vadRequiredSilenceDuration) {
+                    this.log(`VAD: End of speech detected. Silence: ${silenceDuration}ms, Frames: ${this.vad.consecutiveSilenceFrames}`);
                     this.callbacks.onVADSilenceDetected();
                     this.stopRecording();
                 }
             } else {
+                // Reset silence detection on speech
                 this.vad.silenceStartTime = 0;
+                this.vad.consecutiveSilenceFrames = 0;
             }
             
         } catch (error) {
@@ -688,6 +910,9 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Stop VAD monitoring
+     */
     _stopVADMonitoring() {
         if (this.vad.monitoringInterval) {
             clearInterval(this.vad.monitoringInterval);
@@ -698,6 +923,9 @@ class TelegramAudioBridge {
     }
     
     // Telegram integration methods
+    /**
+     * Setup Telegram optimizations
+     */
     _setupTelegramOptimizations() {
         if (!this.telegram.isAvailable) {
             this.log('Telegram WebApp context not available');
@@ -727,22 +955,40 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Setup auto-initialization on user interaction
+     */
     _setupAutoInitialization() {
-        // Auto-initialize on first user interaction for mobile
+        // Auto-initialize on first user interaction
         const initOnInteraction = () => {
             if (!this.state.initialized) {
                 this.log('Auto-initializing on user interaction');
                 this.initialize();
             }
-            // Remove listeners after first interaction
-            document.removeEventListener('touchstart', initOnInteraction);
-            document.removeEventListener('click', initOnInteraction);
         };
         
-        document.addEventListener('touchstart', initOnInteraction, { once: true });
-        document.addEventListener('click', initOnInteraction, { once: true });
+        // Use capture phase to ensure we get the event first
+        document.addEventListener('touchstart', initOnInteraction, { once: true, capture: true });
+        document.addEventListener('click', initOnInteraction, { once: true, capture: true });
+        
+        // Special handling for iOS Safari
+        if (this.state.isIOS) {
+            document.addEventListener('touchend', () => {
+                if (this.audio.context && this.audio.context.state === 'suspended') {
+                    this.audio.context.resume().then(() => {
+                        this.log('Audio context resumed on iOS touchend');
+                    }).catch(e => {
+                        this.log('Failed to resume audio context on iOS touchend', false);
+                    });
+                }
+            }, { capture: true });
+        }
     }
     
+    /**
+     * Unlock audio on mobile devices
+     * Uses multiple techniques for maximum compatibility
+     */
     async _unlockAudioOnMobile() {
         if (!this.state.isMobile || this.state.audioUnlocked) return true;
         
@@ -771,6 +1017,9 @@ class TelegramAudioBridge {
         return false;
     }
     
+    /**
+     * Unlock audio by playing a silent audio file
+     */
     async _unlockWithSilentAudio() {
         const audio = new Audio();
         audio.volume = 0;
@@ -786,6 +1035,9 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Unlock audio by using the audio context
+     */
     async _unlockWithAudioContext() {
         if (!this.audio.context) return false;
         
@@ -802,6 +1054,9 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Unlock audio with user gesture
+     */
     async _unlockWithUserGesture() {
         // This requires an actual user gesture, so it may not work in all contexts
         return new Promise((resolve) => {
@@ -827,6 +1082,9 @@ class TelegramAudioBridge {
     }
     
     // Audio pool management
+    /**
+     * Create a pool of audio elements for playback
+     */
     _createAudioPool() {
         const poolSize = this.state.isMobile ? 2 : 3; // Smaller pool for mobile
         
@@ -845,6 +1103,9 @@ class TelegramAudioBridge {
         this.log(`Created audio pool with ${poolSize} elements`);
     }
     
+    /**
+     * Get an audio element from the pool
+     */
     _getAudioFromPool() {
         if (this.audio.audioPool.length > 0) {
             return this.audio.audioPool.shift();
@@ -860,6 +1121,9 @@ class TelegramAudioBridge {
         return audio;
     }
     
+    /**
+     * Return an audio element to the pool
+     */
     _returnAudioToPool(audio) {
         // Clean up the audio element
         audio.onended = null;
@@ -874,6 +1138,9 @@ class TelegramAudioBridge {
     }
     
     // Utility methods
+    /**
+     * Convert array buffer to base64
+     */
     _arrayBufferToBase64(buffer) {
         const bytes = new Uint8Array(buffer);
         let binary = '';
@@ -883,6 +1150,9 @@ class TelegramAudioBridge {
         return window.btoa(binary);
     }
     
+    /**
+     * Convert base64 to array buffer
+     */
     _base64ToArrayBuffer(base64) {
         const binaryString = window.atob(base64);
         const len = binaryString.length;
@@ -890,9 +1160,12 @@ class TelegramAudioBridge {
         for (let i = 0; i < len; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
-        return bytes.buffer;
+        return bytes;
     }
     
+    /**
+     * Trigger haptic feedback
+     */
     _triggerHapticFeedback(type = 'light') {
         if (!this.config.hapticFeedbackEnabled || !this.telegram.hapticFeedback) return;
         
@@ -925,7 +1198,24 @@ class TelegramAudioBridge {
         }
     }
     
+    /**
+     * Detect if running on a mobile device
+     */
+    _detectMobileDevice() {
+        return /iPhone|iPad|iPod|Android|webOS|BlackBerry|Windows Phone/i.test(navigator.userAgent);
+    }
+    
+    /**
+     * Detect if running on iOS
+     */
+    _detectIOSDevice() {
+        return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+    
     // Error handling
+    /**
+     * Handle errors
+     */
     handleError(error) {
         this.log('AudioBridge error:', error, true);
         this.callbacks.onError(error);
@@ -937,8 +1227,11 @@ class TelegramAudioBridge {
     }
     
     // Cleanup and disposal
+    /**
+     * Dispose of all resources
+     */
     dispose() {
-        this.log('Disposing Enhanced TelegramAudioBridge...');
+        this.log('Disposing Modern TelegramAudioBridge...');
         
         // Stop all activities
         this.stopRecording();
@@ -964,14 +1257,17 @@ class TelegramAudioBridge {
         this.audio.audioPool = [];
         
         this.state.initialized = false;
-        this.log('Enhanced TelegramAudioBridge disposed');
+        this.log('Modern TelegramAudioBridge disposed');
     }
     
     // Logging
+    /**
+     * Log messages with optional error flag
+     */
     log(message, data = null, isError = false) {
         if (this.config.debug) {
             const logMethod = isError ? console.error : console.log;
-            logMethod('[Enhanced TelegramAudioBridge]', message, data || '');
+            logMethod('[Modern TelegramAudioBridge]', message, data || '');
             
             // Global debug integration
             if (typeof window.debugLog === 'function') {
@@ -995,6 +1291,10 @@ class TelegramAudioBridge {
     
     get initialized() {
         return this.state.initialized;
+    }
+    
+    get permissionState() {
+        return this.state.permissionState;
     }
 }
 
