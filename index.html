@@ -105,6 +105,26 @@
                 Telegram.WebApp.expand();
                 console.log("Telegram WebApp SDK initialized on chooser page.");
             }
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionToken = urlParams.get('session');
+
+            if (sessionToken) {
+                const textChatLink = document.querySelector('a[href="text_chat.html"]');
+                const voiceChatLink = document.querySelector('a[href="voice_chat.html"]');
+
+                if (textChatLink) {
+                    textChatLink.href = `text_chat.html?session=${sessionToken}`;
+                    console.log('Updated text chat link:', textChatLink.href);
+                }
+                if (voiceChatLink) {
+                    voiceChatLink.href = `voice_chat.html?session=${sessionToken}`;
+                    console.log('Updated voice chat link:', voiceChatLink.href);
+                }
+            } else {
+                console.warn('Session token not found in URL for chooser page.');
+                // Optionally, disable links or show an error if session token is critical here
+            }
         });
     </script>
 </body>
