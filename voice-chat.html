@@ -11,91 +11,92 @@
     
     <!-- Existing Styles -->
     <link rel="stylesheet" href="./styles_v2.css">
-    <!-- New Chat Styles -->
-    <link rel="stylesheet" href="./konverter-chat.css">
     
     <!-- Dialogflow Messenger Styles -->
     <link rel="stylesheet" href="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/themes/df-messenger-default.css">
 </head>
 <body>
-    <!-- Main Chat Interface (Primary) -->
-    <div class="konverter-chat-container" id="chatInterface">
-        <!-- Chat Header -->
-        <div class="konverter-chat-header">
-            <div class="konverter-chat-avatar">K</div>
-            <div class="konverter-chat-info">
-                <h3>Konverter.ai AI Team</h3>
-                <div class="konverter-chat-status">
-                    <div class="konverter-status-dot"></div>
-                    Online • Ready to help
-                </div>
-            </div>
-        </div>
+    <!-- Main Interface Container -->
+    <div class="konverter-main-container" id="mainContainer">
         
-        <!-- Messages Container -->
-        <div class="konverter-messages-container" id="messagesContainer">
-            <!-- Welcome Message -->
-            <div class="konverter-welcome-message">
-                <div class="konverter-welcome-title">Welcome to Konverter.ai</div>
-                <div class="konverter-welcome-subtitle">Your AI agent marketplace assistant</div>
-                <div class="konverter-quick-actions">
-                    <div class="konverter-quick-action">Tell me about funding</div>
-                    <div class="konverter-quick-action">Request a demo</div>
-                    <div class="konverter-quick-action">View marketplace</div>
-                    <div class="konverter-quick-action">Connect with Josh</div>
-                </div>
-            </div>
-            
-            <!-- Typing Indicator (Hidden by default) -->
-            <div class="konverter-message ai">
-                <div class="konverter-typing-indicator konverter-hidden" id="typingIndicator">
-                    <div class="konverter-typing-dots">
-                        <div class="konverter-typing-dot"></div>
-                        <div class="konverter-typing-dot"></div>
-                        <div class="konverter-typing-dot"></div>
+        <!-- Custom Header -->
+        <div class="konverter-custom-header">
+            <div class="konverter-header-content">
+                <div class="konverter-chat-avatar">K</div>
+                <div class="konverter-chat-info">
+                    <h3>Konverter.ai AI Team</h3>
+                    <div class="konverter-chat-status">
+                        <div class="konverter-status-dot"></div>
+                        Online • Ready to help
                     </div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Input Area -->
-        <div class="konverter-input-container">
-            <div class="konverter-input-wrapper">
-                <textarea 
-                    id="messageInput" 
-                    class="konverter-message-input" 
-                    placeholder="Ask about our AI agents, funding, or request a demo..."
-                    rows="1"></textarea>
-                <button id="sendButton" class="konverter-send-button" title="Send message">
-                    ➤
-                </button>
-            </div>
             
-            <!-- Voice Options -->
-            <div class="konverter-voice-options">
-                <button id="voiceToggle" class="konverter-voice-btn" title="Switch to voice mode">
+            <!-- Voice Options in Header -->
+            <div class="konverter-header-actions">
+                <button id="voiceToggle" class="konverter-action-btn" title="Switch to voice mode">
                     🎤
                 </button>
-                <a href="tel:+13613710575" class="konverter-voice-btn phone" title="Call our AI assistant">
+                <a href="tel:+13613710575" class="konverter-action-btn" title="Call our AI assistant">
                     📞
                 </a>
             </div>
         </div>
+        
+        <!-- Styled Dialogflow Messenger -->
+        <div class="konverter-messenger-container">
+            <df-messenger
+                project-id="n8n-lomeai"
+                agent-id="7bd4b98d-e56b-448d-914b-06be3a0f5f0c"
+                language-code="en"
+                max-query-length="-1"
+                allow-feedback="all"
+                chat-title=""
+                expand="true">
+                
+                <!-- Welcome Intent -->
+                <df-messenger-chat
+                    chat-title="Konverter.ai Assistant"
+                    placeholder-text="Ask about our AI agents, funding, or request a demo..."
+                    bot-writing-text="Konverter AI is typing...">
+                </df-messenger-chat>
+            </df-messenger>
+        </div>
+        
+        <!-- Quick Actions Overlay -->
+        <div class="konverter-quick-actions-overlay" id="quickActions">
+            <div class="konverter-welcome-content">
+                <div class="konverter-welcome-title">Welcome to Konverter.ai</div>
+                <div class="konverter-welcome-subtitle">Your AI agent marketplace assistant</div>
+                <div class="konverter-quick-buttons">
+                    <button class="konverter-quick-btn" onclick="sendQuickMessage('Tell me about your funding round')">
+                        💰 Funding Info
+                    </button>
+                    <button class="konverter-quick-btn" onclick="sendQuickMessage('I want to request a demo')">
+                        🎯 Request Demo
+                    </button>
+                    <button class="konverter-quick-btn" onclick="sendQuickMessage('How does your marketplace work?')">
+                        🏪 Marketplace
+                    </button>
+                    <button class="konverter-quick-btn" onclick="sendQuickMessage('I want to connect with Josh')">
+                        👨‍💼 Connect with Josh
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Voice Interface (Secondary - Hidden by default) -->
+    <!-- Voice Interface (Hidden by default) -->
     <div class="voice-interaction" id="voiceInterface" style="display: none;">
         <div class="header">
             <h1 class="title">Konverter.ai Voice</h1>
             <p class="subtitle">Premium AI voice conversation</p>
             <div class="status" id="status">Voice mode ready</div>
             <button class="debug-button" id="debugBtn" onclick="showDebugInfo()">🛠️</button>
-            <button class="debug-button" id="iosAudioPocButton" style="right: 50px;">iOS PoC</button> 
-            <button class="back-to-chat-btn" onclick="backToChat()" style="right: 100px; background: #667eea;">💬</button>
+            <button class="back-to-chat-btn" onclick="backToChat()" style="right: 50px; background: #667eea;">💬</button>
         </div>
         
         <div class="circles-container">
-            <!-- User Circle -->
             <div class="circle user-circle" id="userCircle">
                 <div class="wave user-wave wave-1"></div>
                 <div class="wave user-wave wave-2"></div>
@@ -104,7 +105,6 @@
                 <div class="circle-label">You</div>
             </div>
             
-            <!-- AI Circle -->
             <div class="circle ai-circle" id="aiCircle">
                 <div class="wave ai-wave wave-1"></div>
                 <div class="wave ai-wave wave-2"></div>
@@ -114,42 +114,13 @@
             </div>
         </div>
         
-        <!-- Live transcription -->
         <div class="live-transcription">
             <div class="transcription" id="inputTranscription"></div>
             <div class="transcription" id="outputTranscription"></div>
         </div>
         
-        <!-- Mic button -->
         <button class="mic-button" id="micButton" disabled>🎤</button>
-        
-        <!-- Transcription toggle button -->
-        <button class="transcription-toggle" id="transcriptionToggle" onclick="toggleTranscriptionPanel()">💬</button>
-        
-        <!-- Transcription panel -->
-        <div class="transcription-panel" id="transcriptionPanel">
-            <div class="transcription-header">
-                <div class="transcription-title">Conversation History</div>
-                <button class="transcription-close" onclick="toggleTranscriptionPanel()">×</button>
-            </div>
-            <div class="conversation-log" id="conversationLog">
-                <div class="message ai">
-                    👋 Welcome to Konverter.ai Voice! I'm your premium AI voice assistant. Tap the microphone to start our conversation.
-                    <div class="message-avatar">K</div>
-                </div>
-            </div>
-        </div>
-        
         <div class="session-info" id="sessionInfo">Session: Voice Mode Active</div>
-        <div class="loading-spinner" id="loadingSpinner"></div>
-    </div>
-
-    <!-- Permission guidance overlay -->
-    <div class="permission-guidance" id="permissionGuidance" style="display: none;">
-        <h2>Microphone Access Required</h2>
-        <p>To use voice chat, please allow microphone access when prompted.</p>
-        <div id="permissionInstructions"></div>
-        <button onclick="hidePermissionGuidance()">Got it</button>
     </div>
 
     <!-- Debug overlay -->
@@ -158,325 +129,314 @@
         <button class="debug-close" onclick="hideDebugInfo()">Close Debug</button>
     </div>
 
-    <!-- Hidden Dialogflow Messenger (Does the backend work) -->
-    <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
-    <df-messenger
-        id="hiddenMessenger"
-        project-id="n8n-lomeai"
-        agent-id="7bd4b98d-e56b-448d-914b-06be3a0f5f0c"
-        language-code="en"
-        max-query-length="-1"
-        allow-feedback="all"
-        style="display: none;">
-    </df-messenger>
-
     <!-- Existing Scripts (Preserved) -->
     <script src="./ui_controller_v2.js"></script>
     <script src="./telegram_audio_bridge_v3.js"></script>
     <script src="./gemini_telegram_client_v3_patch.js"></script>
     
-    <!-- New Chat Integration Script -->
-    <script src="./konverter-chat.js"></script>
+    <!-- Dialogflow Messenger Script -->
+    <script src="https://www.gstatic.com/dialogflow-console/fast/df-messenger/prod/v1/df-messenger.js"></script>
     
-    <!-- Enhanced initialization script (Updated) -->
     <script type="text/javascript">
-        // Global debug system (Preserved from original)
-        window.debugMessages = [];
-        window.globalError = null;
-        window.initializationStatus = 'starting';
-        window.globalPocAudioContext = null;
-
-        function debugLog(message, isError = false, data = null) {
-            const timestamp = new Date().toISOString();
-            const logEntry = {
-                timestamp,
-                message,
-                isError,
-                data,
-                level: isError ? 'ERROR' : 'INFO'
-            };
-            
-            window.debugMessages.push(logEntry);
-            
-            const consoleMessage = `${timestamp} [${logEntry.level}] ${message}`;
-            if (isError) {
-                console.error(consoleMessage, data || '');
-            } else {
-                console.log(consoleMessage, data || '');
-            }
-            
-            updateDebugOverlay();
-            
-            if (isError) {
-                window.globalError = message;
-                updateStatus(message, 'error');
+        // Quick message function
+        function sendQuickMessage(message) {
+            const messenger = document.querySelector('df-messenger');
+            if (messenger) {
+                // Hide quick actions
+                document.getElementById('quickActions').style.display = 'none';
+                
+                // Send message through Dialogflow input
+                const input = messenger.querySelector('input');
+                if (input) {
+                    input.value = message;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    
+                    // Find and click send button
+                    const sendBtn = messenger.querySelector('[aria-label="Send message"]') || 
+                                   messenger.querySelector('button[type="submit"]') ||
+                                   messenger.querySelector('[data-testid="send-button"]');
+                    if (sendBtn) {
+                        sendBtn.click();
+                    } else {
+                        // Fallback: press Enter
+                        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                    }
+                }
             }
         }
-
-        function updateStatus(message, type = '') {
-            const statusEl = document.getElementById('status');
-            if (statusEl) {
-                statusEl.textContent = message;
-                statusEl.className = 'status ' + type;
+        
+        // Voice interface toggle
+        function toggleVoiceInterface() {
+            const voiceInterface = document.getElementById('voiceInterface');
+            const mainContainer = document.getElementById('mainContainer');
+            
+            if (voiceInterface && mainContainer) {
+                if (voiceInterface.style.display === 'none') {
+                    voiceInterface.style.display = 'block';
+                    mainContainer.style.display = 'none';
+                } else {
+                    voiceInterface.style.display = 'none';
+                    mainContainer.style.display = 'flex';
+                }
             }
         }
-
+        
+        function backToChat() {
+            document.getElementById('voiceInterface').style.display = 'none';
+            document.getElementById('mainContainer').style.display = 'flex';
+        }
+        
+        // Hide quick actions when user starts typing
+        document.addEventListener('DOMContentLoaded', function() {
+            const messenger = document.querySelector('df-messenger');
+            
+            if (messenger) {
+                // Listen for when user starts interacting
+                messenger.addEventListener('df-user-input-entered', function() {
+                    document.getElementById('quickActions').style.display = 'none';
+                });
+                
+                // Voice toggle button
+                document.getElementById('voiceToggle').addEventListener('click', toggleVoiceInterface);
+                
+                console.log('Konverter.ai interface initialized');
+            }
+        });
+        
+        // Debug functions
         function showDebugInfo() {
-            updateDebugOverlay();
+            const debugContent = document.getElementById('debugContent');
+            const messenger = document.querySelector('df-messenger');
+            
+            let html = `<h3>Debug Information</h3>`;
+            html += `<p><strong>Messenger Found:</strong> ${!!messenger}</p>`;
+            html += `<p><strong>Project ID:</strong> ${messenger?.getAttribute('project-id') || 'Not found'}</p>`;
+            html += `<p><strong>Agent ID:</strong> ${messenger?.getAttribute('agent-id') || 'Not found'}</p>`;
+            html += `<p><strong>URL:</strong> ${window.location.href}</p>`;
+            html += `<p><strong>User Agent:</strong> ${navigator.userAgent}</p>`;
+            
+            debugContent.innerHTML = html;
             document.getElementById('debugOverlay').style.display = 'block';
         }
-
+        
         function hideDebugInfo() {
             document.getElementById('debugOverlay').style.display = 'none';
         }
-
-        function updateDebugOverlay() {
-            const debugContent = document.getElementById('debugContent');
-            if (!debugContent) return;
-            
-            let html = `<h3>Debug Information</h3>`;
-            html += `<p><strong>Initialization Status:</strong> ${window.initializationStatus}</p>`;
-            html += `<p><strong>Global Error:</strong> ${window.globalError || 'None'}</p>`;
-            html += `<p><strong>Messages Count:</strong> ${window.debugMessages.length}</p>`;
-            html += `<p><strong>URL Parameters:</strong> ${window.location.search}</p>`;
-            html += `<p><strong>User Agent:</strong> ${navigator.userAgent}</p>`;
-            html += `<p><strong>Telegram Available:</strong> ${typeof window.Telegram !== 'undefined'}</p>`;
-            html += `<p><strong>Chat Active:</strong> ${document.getElementById('chatInterface').style.display !== 'none'}</p>`;
-            html += `<p><strong>Voice Active:</strong> ${document.getElementById('voiceInterface').style.display !== 'none'}</p>`;
-            html += `<hr><h4>Recent Messages:</h4>`;
-            
-            const recentMessages = window.debugMessages.slice(-50);
-            recentMessages.forEach(entry => {
-                const color = entry.isError ? '#ff6b6b' : '#ffffff';
-                html += `<div style="color: ${color}; margin-bottom: 5px;">`;
-                html += `<strong>${entry.timestamp.split('T')[1].split('.')[0]}</strong> `;
-                html += `[${entry.level}] ${entry.message}`;
-                if (entry.data) {
-                    html += `<br><code style="font-size: 10px; opacity: 0.8;">${JSON.stringify(entry.data).substring(0, 200)}</code>`;
-                }
-                html += `</div>`;
-            });
-            
-            debugContent.innerHTML = html;
-        }
-
-        function showPermissionGuidance(platform = 'generic') {
-            const instructionsDiv = document.getElementById('permissionInstructions');
-            let instructions = '';
-            
-            if (platform === 'ios') {
-                instructions = `
-                    <p>On iOS, follow these steps:</p>
-                    <ol>
-                        <li>Tap the "AA" button in the address bar</li>
-                        <li>Select "Website Settings"</li>
-                        <li>Enable "Microphone"</li>
-                        <li>Tap "Done"</li>
-                    </ol>
-                `;
-            } else if (platform === 'android') {
-                instructions = `
-                    <p>On Android, when prompted:</p>
-                    <ol>
-                        <li>Tap "Allow" when asked for microphone permission</li>
-                        <li>If you denied it before, go to your browser settings to enable it</li>
-                    </ol>
-                `;
-            } else {
-                instructions = `
-                    <p>When prompted by your browser:</p>
-                    <ol>
-                        <li>Click "Allow" to grant microphone access</li>
-                        <li>If you don't see a prompt, click the camera/microphone icon in your address bar</li>
-                    </ol>
-                `;
-            }
-            
-            instructionsDiv.innerHTML = instructions;
-            document.getElementById('permissionGuidance').style.display = 'flex';
-        }
-
-        function hidePermissionGuidance() {
-            document.getElementById('permissionGuidance').style.display = 'none';
-        }
-
-        function showLoading(show = true) {
-            document.getElementById('loadingSpinner').style.display = show ? 'block' : 'none';
-        }
-
-        // Voice interface initialization (Preserved)
-        async function loadScript(src, timeout = 10000) {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                const timeoutId = setTimeout(() => {
-                    script.remove();
-                    reject(new Error(`Script loading timeout: ${src}`));
-                }, timeout);
-
-                script.onload = () => {
-                    clearTimeout(timeoutId);
-                    resolve();
-                };
-
-                script.onerror = (e) => {
-                    clearTimeout(timeoutId);
-                    script.remove();
-                    reject(new Error(`Script loading failed: ${src}`));
-                };
-
-                script.src = `${src}?v=${Date.now()}`;
-                script.type = 'text/javascript';
-                document.head.appendChild(script);
-            });
-        }
-
-        async function initializeVoiceApp() {
-            try {
-                debugLog('Starting voice app initialization');
-                window.initializationStatus = 'loading_voice_scripts';
-                
-                if (typeof window.Telegram === 'undefined') {
-                    debugLog('Warning: Not running in Telegram WebApp context', false, {
-                        userAgent: navigator.userAgent,
-                        location: window.location.href
-                    });
-                }
-
-                debugLog('Voice components ready for activation');
-                window.initializationStatus = 'voice_ready';
-                
-            } catch (error) {
-                window.initializationStatus = 'voice_failed';
-                debugLog('Voice app initialization failed', true, error.message);
-            }
-        }
-
-        // Interface switching functions
-        function backToChat() {
-            document.getElementById('voiceInterface').style.display = 'none';
-            document.getElementById('chatInterface').style.display = 'flex';
-            debugLog('Switched back to chat interface');
-        }
-
-        // iOS Audio PoC (Preserved)
-        const iosAudioPocButton = document.getElementById('iosAudioPocButton');
-        if (iosAudioPocButton) {
-            iosAudioPocButton.addEventListener('click', async () => {
-                debugLog('[iOS PoC] Button clicked. Attempting to initialize/resume globalPocAudioContext...');
-
-                try {
-                    if (!window.globalPocAudioContext) {
-                        debugLog('[iOS PoC] Creating globalPocAudioContext...');
-                        window.globalPocAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        debugLog(`[iOS PoC] globalPocAudioContext created. Initial state: ${window.globalPocAudioContext.state}`);
-                    } else {
-                        debugLog(`[iOS PoC] globalPocAudioContext already exists. State: ${window.globalPocAudioContext.state}`);
-                    }
-
-                    if (window.globalPocAudioContext.state === 'suspended') {
-                        debugLog('[iOS PoC] globalPocAudioContext is suspended. Attempting to resume...');
-                        try {
-                            await window.globalPocAudioContext.resume();
-                            debugLog(`[iOS PoC] globalPocAudioContext.resume() called. New state: ${window.globalPocAudioContext.state}`);
-                        } catch (resumeError) {
-                            debugLog(`[iOS PoC] Error resuming globalPocAudioContext: ${resumeError.message}`, true, resumeError);
-                        }
-                    }
-
-                    if (window.globalPocAudioContext.state === 'suspended') {
-                        debugLog('[iOS PoC] globalPocAudioContext still suspended. Trying silent audio play...');
-                        const silentAudioPoc = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
-                        silentAudioPoc.volume = 0;
-                        try {
-                            await silentAudioPoc.play();
-                            debugLog('[iOS PoC] Silent audio played successfully.');
-                        } catch (playError) {
-                            debugLog(`[iOS PoC] Error playing silent audio: ${playError.message}`, true, playError);
-                        }
-                    }
-                    
-                    debugLog(`[iOS PoC] Final globalPocAudioContext state: ${window.globalPocAudioContext.state}`);
-                } catch (error) {
-                    debugLog(`[iOS PoC] General error: ${error.message}`, true, error);
-                }
-            });
-        }
-
-        // Initialize everything
-        document.addEventListener('DOMContentLoaded', () => {
-            // Initialize voice components (but don't activate by default)
-            initializeVoiceApp();
-            
-            // Chat interface is initialized by konverter-chat.js
-            debugLog('Hybrid interface initialization complete');
-        });
-
-        // Global error handlers (Preserved)
-        window.addEventListener('error', (e) => {
-            debugLog('Global error caught', true, {
-                message: e.message,
-                filename: e.filename,
-                lineno: e.lineno,
-                colno: e.colno,
-                stack: e.error?.stack
-            });
-        });
-
-        window.addEventListener('unhandledrejection', (e) => {
-            debugLog('Unhandled promise rejection', true, {
-                reason: e.reason,
-                stack: e.reason?.stack
-            });
-        });
-
-        // Export debug functions globally (Preserved)
-        window.debugLog = debugLog;
-        window.showDebugInfo = showDebugInfo;
-        window.hideDebugInfo = hideDebugInfo;
-        window.showPermissionGuidance = showPermissionGuidance;
-        window.hidePermissionGuidance = hidePermissionGuidance;
-        window.backToChat = backToChat;
         
-        debugLog('Hybrid debug system initialized');
-
+        // Preserve existing debug system
+        window.debugMessages = [];
+        window.debugLog = function(message, isError = false, data = null) {
+            console.log(`[${isError ? 'ERROR' : 'INFO'}] ${message}`, data || '');
+            window.debugMessages.push({ message, isError, data, timestamp: new Date() });
+        };
+        
+        debugLog('Konverter.ai visible messenger approach initialized');
     </script>
 
     <style>
-        /* Additional integration styles */
-        .back-to-chat-btn {
-            position: absolute;
-            top: 16px;
-            right: 100px;
-            width: 40px;
-            height: 40px;
-            border: none;
-            border-radius: 50%;
-            background: #667eea;
-            color: white;
-            cursor: pointer;
-            font-size: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s ease;
-            z-index: 1000;
+        /* Reset and base styles */
+        * {
+            box-sizing: border-box;
         }
         
-        .back-to-chat-btn:hover {
-            background: #5a67d8;
-            transform: translateY(-1px);
-        }
-        
-        /* Ensure chat interface takes full height */
         body {
             margin: 0;
             padding: 0;
-            font-family: 'Inter', sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f8f9fa;
+            overflow: hidden;
         }
         
-        /* Hide scrollbars on body when chat is active */
-        body:has(.konverter-chat-container:not([style*="display: none"])) {
+        /* Main container */
+        .konverter-main-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: #f8f9fa;
+        }
+        
+        /* Custom Header */
+        .konverter-custom-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            z-index: 10;
+        }
+        
+        .konverter-header-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .konverter-chat-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .konverter-chat-info h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .konverter-chat-status {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.8);
+            margin: 2px 0 0 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .konverter-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .konverter-header-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .konverter-action-btn {
+            width: 44px;
+            height: 44px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            backdrop-filter: blur(10px);
+        }
+        
+        .konverter-action-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+        
+        /* Messenger Container */
+        .konverter-messenger-container {
+            flex: 1;
+            position: relative;
             overflow: hidden;
+        }
+        
+        /* Style the Dialogflow Messenger */
+        df-messenger {
+            --df-messenger-font-family: 'Inter', sans-serif;
+            --df-messenger-font-color: #1a1a1a;
+            --df-messenger-font-size: 16px;
+            --df-messenger-chat-background: #f8f9fa;
+            --df-messenger-message-user-background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --df-messenger-message-bot-background: #ffffff;
+            --df-messenger-message-bot-color: #1a1a1a;
+            --df-messenger-message-user-color: #ffffff;
+            --df-messenger-input-background: #ffffff;
+            --df-messenger-input-border-color: #e9ecef;
+            --df-messenger-input-placeholder-color: #666666;
+            --df-messenger-send-icon-color: #667eea;
+            --df-messenger-chat-border-radius: 20px;
+            --df-messenger-message-border-radius: 20px;
+            --df-messenger-input-border-radius: 28px;
+            --df-messenger-input-font-size: 16px;
+            --df-messenger-input-padding: 16px 20px;
+            --df-messenger-input-box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+        
+        /* Quick Actions Overlay */
+        .konverter-quick-actions-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            background: white;
+            border-radius: 20px;
+            padding: 32px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+        
+        .konverter-welcome-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .konverter-welcome-subtitle {
+            color: #666;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+        
+        .konverter-quick-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        
+        .konverter-quick-btn {
+            padding: 16px 12px;
+            border: 2px solid rgba(102, 126, 234, 0.2);
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            color: #667eea;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            line-height: 1.2;
+        }
+        
+        .konverter-quick-btn:hover {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
         }
         
         /* Voice interface positioning */
@@ -490,10 +450,89 @@
             z-index: 1000;
         }
         
-        /* Ensure proper app container for voice mode */
-        .app-container {
-            height: 100vh;
-            overflow: hidden;
+        .back-to-chat-btn {
+            position: absolute;
+            top: 16px;
+            right: 50px;
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .back-to-chat-btn:hover {
+            background: #5a67d8;
+            transform: translateY(-1px);
+        }
+        
+        /* Debug overlay */
+        .debug-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .debug-content {
+            background: #1a1a1a;
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .debug-close {
+            margin-top: 16px;
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .konverter-custom-header {
+                padding: 12px 16px;
+            }
+            
+            .konverter-chat-avatar {
+                width: 36px;
+                height: 36px;
+                font-size: 16px;
+            }
+            
+            .konverter-action-btn {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+            
+            .konverter-quick-buttons {
+                grid-template-columns: 1fr;
+            }
+            
+            .konverter-welcome-title {
+                font-size: 20px;
+            }
         }
     </style>
 </body>
