@@ -271,51 +271,53 @@
 .konverter-input-container {
   background: white;
   border-top: 1px solid var(--konverter-border);
-  padding: 16px 20px;
+  padding: 20px;
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  gap: 16px;
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.05);
 }
 
 .konverter-input-wrapper {
   flex: 1;
   position: relative;
+  max-width: none;
 }
 
 .konverter-message-input {
   width: 100%;
-  min-height: 44px;
-  max-height: 120px;
-  padding: 12px 50px 12px 16px;
+  min-height: 56px;
+  max-height: 140px;
+  padding: 16px 60px 16px 20px;
   border: 2px solid var(--konverter-border);
-  border-radius: 22px;
-  font-size: 14px;
+  border-radius: 28px;
+  font-size: 16px;
   font-family: var(--konverter-font);
   background: var(--konverter-bg-light);
   resize: none;
   outline: none;
   transition: all 0.2s ease;
   overflow-y: auto;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .konverter-message-input:focus {
   border-color: var(--konverter-primary);
   background: white;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
 }
 
 .konverter-message-input::placeholder {
   color: var(--konverter-text-light);
+  font-size: 15px;
 }
 
 .konverter-send-button {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 32px;
-  height: 32px;
+  right: 12px;
+  bottom: 12px;
+  width: 36px;
+  height: 36px;
   border: none;
   border-radius: 50%;
   background: var(--konverter-gradient);
@@ -324,7 +326,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 18px;
   transition: all 0.2s ease;
   box-shadow: var(--konverter-shadow);
 }
