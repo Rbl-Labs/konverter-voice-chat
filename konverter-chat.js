@@ -87,23 +87,43 @@ class KonverterChat {
     }
     
     setupDialogflow() {
-        // Wait for df-messenger to be ready
-        const checkMessenger = () => {
+        // Wait for df-messenger to be ready with more robust checking
+        const checkMessenger = (attempts = 0) => {
             this.hiddenMessenger = document.getElementById('hiddenMessenger');
-            if (this.hiddenMessenger) {
-                // Listen for Dialogflow responses
+            
+            if (this.hiddenMessenger && typeof this.hiddenMessenger.addEventListener === 'function') {
+                // Listen for Dialogflow responses with multiple event types
                 this.hiddenMessenger.addEventListener('df-response-received', (event) => {
+                    console.log('Dialogflow response received:', event.detail);
                     this.handleDialogflowResponse(event.detail);
                 });
                 
                 this.hiddenMessenger.addEventListener('df-messenger-loaded', () => {
-                    console.log('Dialogflow messenger ready');
+                    console.log('Dialogflow messenger loaded and ready');
                 });
                 
+                // Listen for user input events as well
+                this.hiddenMessenger.addEventListener('df-user-input-entered', (event) => {
+                    console.log('User input entered:', event.detail);
+                });
+                
+                // Check if messenger is actually ready by testing its properties
+                setTimeout(() => {
+                    console.log('Dialogflow messenger properties:', {
+                        hasRenderCustomText: typeof this.hiddenMessenger.renderCustomText === 'function',
+                        projectId: this.hiddenMessenger.getAttribute('project-id'),
+                        agentId: this.hiddenMessenger.getAttribute('agent-id'),
+                        element: this.hiddenMessenger.tagName
+                    });
+                }, 1000);
+                
                 console.log('Dialogflow integration setup complete');
+            } else if (attempts < 50) {
+                // Retry for up to 5 seconds
+                setTimeout(() => checkMessenger(attempts + 1), 100);
             } else {
-                // Retry after 100ms if messenger not ready
-                setTimeout(checkMessenger, 100);
+                console.error('Failed to initialize Dialogflow messenger after 5 seconds');
+                this.addErrorMessage('Chat system initialization failed. Please refresh the page.');
             }
         };
         
@@ -150,15 +170,57 @@ class KonverterChat {
     sendToDialogflow(text) {
         try {
             if (this.hiddenMessenger) {
-                // Trigger Dialogflow request
-                this.hiddenMessenger.renderCustomText({
-                    text: text,
-                    session: this.sessionId
+                // Create a proper message event for Dialogflow
+                const messageEvent = new CustomEvent('df-user-input-entered', {
+                    detail: {
+                        input: text,
+                        session: this.sessionId
+                    }
                 });
+                
+                // Dispatch the event to trigger Dialogflow
+                this.hiddenMessenger.dispatchEvent(messageEvent);
+                
+                // Alternative method - directly set the input
+                setTimeout(() => {
+                    try {
+                        // Try to access the internal input method
+                        if (this.hiddenMessenger.querySelector) {
+                            const input = this.hiddenMessenger.querySelector('input');
+                            if (input) {
+                                input.value = text;
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                
+                                // Trigger send
+                                const sendBtn = this.hiddenMessenger.querySelector('[data-testid="send-button"]') || 
+                                               this.hiddenMessenger.querySelector('button[type="submit"]');
+                                if (sendBtn) {
+                                    sendBtn.click();
+                                }
+                            }
+                        }
+                        
+                        // Fallback: Use the renderCustomText method more carefully
+                        if (typeof this.hiddenMessenger.renderCustomText === 'function') {
+                            this.hiddenMessenger.renderCustomText({
+                                text: String(text).trim(),
+                                sessionId: this.sessionId
+                            });
+                        }
+                    } catch (fallbackError) {
+                        console.warn('Fallback Dialogflow methods failed:', fallbackError);
+                        // Last resort - simulate a timeout and show error
+                        setTimeout(() => {
+                            this.hideTyping();
+                            this.addErrorMessage('Connection issue. Please refresh the page and try again.');
+                        }, 3000);
+                    }
+                }, 100);
+                
             } else {
                 console.error('Dialogflow messenger not available');
                 this.hideTyping();
-                this.addErrorMessage('Connection error. Please try again.');
+                this.addErrorMessage('Connection error. Please refresh the page.');
             }
         } catch (error) {
             console.error('Error sending to Dialogflow:', error);
