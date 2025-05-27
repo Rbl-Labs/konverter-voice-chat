@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Konverter.ai Voice</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <div class="header">
+            <h1 class="title">Konverter.ai Voice</h1>
+            <p class="subtitle">Premium AI voice conversation</p>
+            <div class="status" id="status">Initializing...</div>
+            <a href="index.html" class="debug-button" title="Switch to Text Chat / Home" style="right: 90px; text-decoration: none; font-size: 18px; display: inline-flex; align-items: center; justify-content: center;">💬</a>
+            <button class="debug-button" id="debugBtn" onclick="showDebugInfo()" title="Debug Info">🛠️</button>
+            <button class="debug-button" id="iosAudioPocButton" style="right: 50px;" title="iOS Audio PoC">iOS PoC</button> 
+        </div>
+        
+        <div class="voice-interaction">
+            <div class="circles-container">
+                <!-- User Circle -->
+                <div class="circle user-circle" id="userCircle">
+                    <div class="wave user-wave wave-1"></div>
+                    <div class="wave user-wave wave-2"></div>
+                    <div class="wave user-wave wave-3"></div>
+                    <div class="circle-icon">👤</div>
+                    <div class="circle-label">You</div>
+                </div>
+                
+                <!-- AI Circle -->
+                <div class="circle ai-circle" id="aiCircle">
+                    <div class="wave ai-wave wave-1"></div>
+                    <div class="wave ai-wave wave-2"></div>
+                    <div class="wave ai-wave wave-3"></div>
+                    <div class="circle-icon">🤖</div>
+                    <div class="circle-label">AI</div>
+                </div>
+            </div>
+            
+            <!-- Live transcription (shown briefly during speech) -->
+            <div class="live-transcription">
+                <div class="transcription" id="inputTranscription"></div>
+                <div class="transcription" id="outputTranscription"></div>
+            </div>
+            
+            <!-- Mic button -->
+            <button class="mic-button" id="micButton" disabled>
+                🎤
+            </button>
+            
+            <!-- Transcription toggle button -->
+            <button class="transcription-toggle" id="transcriptionToggle" onclick="toggleTranscriptionPanel()">
+                💬
+            </button>
+        </div>
+        
+        <!-- Transcription panel (hidden by default) -->
+        <div class="transcription-panel" id="transcriptionPanel">
+            <div class="transcription-header">
+                <div class="transcription-title">Conversation History</div>
+                <button class="transcription-close" onclick="toggleTranscriptionPanel()">×</button>
+            </div>
+            <div class="conversation-log" id="conversationLog">
+                <div class="message ai">
+                    👋 Welcome to Konverter.ai Voice! I'm your premium AI voice assistant. Tap the microphone to start our conversation.
+                    <div class="message-avatar">K</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="session-info" id="sessionInfo">
+            Session: Loading...
+        </div>
+        
+        <div class="loading-spinner" id="loadingSpinner"></div>
+    </div>
+
+    <!-- Permission guidance overlay -->
+    <div class="permission-guidance" id="permissionGuidance">
+        <h2>Microphone Access Required</h2>
+        <p>To use voice chat, please allow microphone access when prompted.</p>
+        <div id="permissionInstructions">
+            <!-- Platform-specific instructions will be inserted here -->
+        </div>
+        <button onclick="hidePermissionGuidance()">Got it</button>
+    </div>
+
+    <!-- Debug overlay -->
+    <div class="debug-overlay" id="debugOverlay">
+        <div class="debug-content" id="debugContent"></div>
+        <button class="debug-close" onclick="hideDebugInfo()">Close Debug</button>
+    </div>
+
+    <!-- Load UI Controller -->
+    <script src="./ui_controller_v2.js"></script>
+    
+    <!-- Enhanced initialization script -->
+    <script type="text/javascript">
+        // Global debug system
+        window.debugMessages = [];
+        window.globalError = null;
+        window.initializationStatus = 'starting';
+        window.globalPocAudioContext = null; // Global AudioContext for PoC
+
+        function debugLog(message, isError = false, data = null) {
+            const timestamp = new Date().toISOString();
+            const logEntry = {
+                timestamp,
+                message,
+                isError,
+                data,
+                level: isError ? 'ERROR' : 'INFO'
+            };
+            
+            window.debugMessages.push(logEntry);
+            
+            // Console logging
+            const consoleMessage = `${timestamp} [${logEntry.level}] ${message}`;
+            if (isError) {
+                console.error(consoleMessage, data || '');
+            } else {
+                console.log(consoleMessage, data || '');
+            }
+            
+            // Update debug overlay if open
+            updateDebugOverlay();
+            
+            // Update status for errors
+            if (isError) {
+                window.globalError = message;
+                updateStatus(message, 'error');
+            }
+        }
+
+        function updateStatus(message, type = '') {
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.textContent = message;
+                statusEl.className = 'status ' + type;
+            }
+        }
+
+        function showDebugInfo() {
+            updateDebugOverlay();
+            document.getElementById('debugOverlay').style.display = 'block';
+        }
+
+        function hideDebugInfo() {
+            document.getElementById('debugOverlay').style.display = 'none';
+        }
+
+        function updateDebugOverlay() {
+            const debugContent = document.getElementById('debugContent');
+            if (!debugContent) return;
+            
+            let html = `<h3>Debug Information</h3>`;
+            html += `<p><strong>Initialization Status:</strong> ${window.initializationStatus}</p>`;
+            html += `<p><strong>Global Error:</strong> ${window.globalError || 'None'}</p>`;
+            html += `<p><strong>Messages Count:</strong> ${window.debugMessages.length}</p>`;
+            html += `<p><strong>URL Parameters:</strong> ${window.location.search}</p>`;
+            html += `<p><strong>User Agent:</strong> ${navigator.userAgent}</p>`;
+            html += `<p><strong>Telegram Available:</strong> ${typeof window.Telegram !== 'undefined'}</p>`;
+            html += `<hr><h4>Recent Messages:</h4>`;
+            
+            // Show last 50 messages
+            const recentMessages = window.debugMessages.slice(-50);
+            recentMessages.forEach(entry => {
+                const color = entry.isError ? '#ff6b6b' : '#ffffff';
+                html += `<div style="color: ${color}; margin-bottom: 5px;">`;
+                html += `<strong>${entry.timestamp.split('T')[1].split('.')[0]}</strong> `;
+                html += `[${entry.level}] ${entry.message}`;
+                if (entry.data) {
+                    html += `<br><code style="font-size: 10px; opacity: 0.8;">${JSON.stringify(entry.data).substring(0, 200)}</code>`;
+                }
+                html += `</div>`;
+            });
+            
+            debugContent.innerHTML = html;
+        }
+
+        function showCriticalError(message, details = null) {
+            const container = document.querySelector('.app-container');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'initialization-error';
+            errorDiv.innerHTML = `
+                <h3>🚨 Critical Error</h3>
+                <p>${message}</p>
+                ${details ? `<p style="font-size: 12px; opacity: 0.8; margin-top: 10px;">${details}</p>` : ''}
+                <button class="retry-button" onclick="window.location.reload()">Retry</button>
+                <button class="retry-button" onclick="showDebugInfo()" style="background: #333; margin-left: 10px;">Debug Info</button>
+            `;
+            container.prepend(errorDiv);
+        }
+
+        function showPermissionGuidance(platform = 'generic') {
+            const instructionsDiv = document.getElementById('permissionInstructions');
+            let instructions = '';
+            
+            if (platform === 'ios') {
+                instructions = `
+                    <p>On iOS, follow these steps:</p>
+                    <ol>
+                        <li>Tap the "AA" button in the address bar</li>
+                        <li>Select "Website Settings"</li>
+                        <li>Enable "Microphone"</li>
+                        <li>Tap "Done"</li>
+                    </ol>
+                    <img src="https://i.imgur.com/example-ios.jpg" alt="iOS Permission Instructions">
+                `;
+            } else if (platform === 'android') {
+                instructions = `
+                    <p>On Android, when prompted:</p>
+                    <ol>
+                        <li>Tap "Allow" when asked for microphone permission</li>
+                        <li>If you denied it before, go to your browser settings to enable it</li>
+                    </ol>
+                `;
+            } else {
+                instructions = `
+                    <p>When prompted by your browser:</p>
+                    <ol>
+                        <li>Click "Allow" to grant microphone access</li>
+                        <li>If you don't see a prompt, click the camera/microphone icon in your address bar</li>
+                    </ol>
+                `;
+            }
+            
+            instructionsDiv.innerHTML = instructions;
+            document.getElementById('permissionGuidance').style.display = 'flex';
+        }
+
+        function hidePermissionGuidance() {
+            document.getElementById('permissionGuidance').style.display = 'none';
+        }
+
+        function showLoading(show = true) {
+            document.getElementById('loadingSpinner').style.display = show ? 'block' : 'none';
+        }
+
+        // Enhanced script loading with better error handling
+        async function loadScript(src, timeout = 10000) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                const timeoutId = setTimeout(() => {
+                    script.remove();
+                    reject(new Error(`Script loading timeout: ${src}`));
+                }, timeout);
+
+                script.onload = () => {
+                    clearTimeout(timeoutId);
+                    resolve();
+                };
+
+                script.onerror = (e) => {
+                    clearTimeout(timeoutId);
+                    script.remove();
+                    reject(new Error(`Script loading failed: ${src}`));
+                };
+
+                script.src = `${src}?v=${Date.now()}`;
+                script.type = 'text/javascript';
+                document.head.appendChild(script);
+            });
+        }
+
+        // Main initialization function
+        async function initializeApp() {
+            try {
+                debugLog('Starting app initialization');
+                window.initializationStatus = 'loading_scripts';
+                showLoading(true);
+                
+                // Check if we're in Telegram
+                if (typeof window.Telegram === 'undefined') {
+                    debugLog('Warning: Not running in Telegram WebApp context', false, {
+                        userAgent: navigator.userAgent,
+                        location: window.location.href
+                    });
+                }
+
+                // Load TelegramAudioBridge first
+                debugLog('Loading TelegramAudioBridge...');
+                updateStatus('Loading audio components...');
+                
+                await loadScript('./telegram_audio_bridge_v3.js', 15000);
+                debugLog('TelegramAudioBridge loaded successfully');
+                
+                // Verify TelegramAudioBridge is available
+                if (typeof TelegramAudioBridge === 'undefined') {
+                    throw new Error('TelegramAudioBridge not defined after loading');
+                }
+
+                // Load GeminiTelegramClient
+                debugLog('Loading GeminiTelegramClient...');
+                updateStatus('Loading client components...');
+                
+                await loadScript('gemini_telegram_client.js', 15000);
+                debugLog('GeminiTelegramClient (patched) loaded successfully');
+
+                // Create the client manually
+                debugLog('Creating GeminiTelegramClient instance...');
+                updateStatus('Initializing client...');
+                
+                if (typeof GeminiTelegramClient !== 'undefined') {
+                    // Pass the globalPocAudioContext if it has been initialized and set to running by the PoC button
+                    const clientOptions = {};
+                    if (window.globalPocAudioContext && window.globalPocAudioContext.state === 'running') {
+                        debugLog('Passing pre-resumed globalPocAudioContext to GeminiTelegramClient');
+                        clientOptions.audioContext = window.globalPocAudioContext;
+                    }
+                    window.geminiClient = new GeminiTelegramClient(clientOptions);
+                    debugLog('GeminiTelegramClient instance created successfully');
+                } else {
+                    throw new Error('GeminiTelegramClient class not available');
+                }
+
+                window.initializationStatus = 'ready';
+                debugLog('App initialization completed successfully');
+                showLoading(false);
+                
+                // Add diagnostic check
+                setTimeout(() => {
+                    debugLog('Diagnostic check after 3 seconds:');
+                    debugLog('TelegramAudioBridge available: ' + (typeof TelegramAudioBridge !== 'undefined'));
+                    debugLog('GeminiTelegramClient available: ' + (typeof GeminiTelegramClient !== 'undefined'));
+                    debugLog('window.geminiClient exists: ' + (typeof window.geminiClient !== 'undefined'));
+                    
+                    if (typeof window.geminiClient !== 'undefined') {
+                        debugLog('Client state: ' + JSON.stringify({
+                            isInitialized: window.geminiClient.state?.isInitialized,
+                            isInitializing: window.geminiClient.state?.isInitializing
+                        }));
+                    }
+                }, 3000);
+                
+            } catch (error) {
+                window.initializationStatus = 'failed';
+                debugLog('App initialization failed', true, error.message);
+                showCriticalError(
+                    'Failed to initialize the voice chat application',
+                    error.message
+                );
+                showLoading(false);
+            }
+        }
+
+        // Start initialization when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+
+        // Global error handler
+        window.addEventListener('error', (e) => {
+            debugLog('Global error caught', true, {
+                message: e.message,
+                filename: e.filename,
+                lineno: e.lineno,
+                colno: e.colno,
+                stack: e.error?.stack
+            });
+        });
+
+        window.addEventListener('unhandledrejection', (e) => {
+            debugLog('Unhandled promise rejection', true, {
+                reason: e.reason,
+                stack: e.reason?.stack
+            });
+        });
+
+        // Export debug functions globally
+        window.debugLog = debugLog;
+        window.showDebugInfo = showDebugInfo;
+        window.hideDebugInfo = hideDebugInfo;
+        window.showPermissionGuidance = showPermissionGuidance;
+        window.hidePermissionGuidance = hidePermissionGuidance;
+        
+        debugLog('Debug system initialized');
+
+        // iOS Audio PoC Test Logic
+        const iosAudioPocButton = document.getElementById('iosAudioPocButton');
+
+        if (iosAudioPocButton) {
+            iosAudioPocButton.addEventListener('click', async () => {
+                debugLog('[iOS PoC] Button clicked. Attempting to initialize/resume globalPocAudioContext...');
+
+                try {
+                    if (!window.globalPocAudioContext) {
+                        debugLog('[iOS PoC] Creating globalPocAudioContext...');
+                        window.globalPocAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        debugLog(`[iOS PoC] globalPocAudioContext created. Initial state: ${window.globalPocAudioContext.state}`);
+                    } else {
+                        debugLog(`[iOS PoC] globalPocAudioContext already exists. State: ${window.globalPocAudioContext.state}`);
+                    }
+
+                    if (window.globalPocAudioContext.state === 'suspended') {
+                        debugLog('[iOS PoC] globalPocAudioContext is suspended. Attempting to resume...');
+                        try {
+                            await window.globalPocAudioContext.resume();
+                            debugLog(`[iOS PoC] globalPocAudioContext.resume() called. New state: ${window.globalPocAudioContext.state}`);
+                        } catch (resumeError) {
+                            debugLog(`[iOS PoC] Error resuming globalPocAudioContext: ${resumeError.message}`, true, resumeError);
+                            debugLog(`[iOS PoC] globalPocAudioContext state after resume error: ${window.globalPocAudioContext.state}`);
+                        }
+                    }
+
+                    // Optionally, attempt silent audio play if still suspended, though direct resume should be key
+                    if (window.globalPocAudioContext.state === 'suspended') {
+                        debugLog('[iOS PoC] globalPocAudioContext still suspended after resume attempt. Trying silent audio play...');
+                        const silentAudioPoc = new Audio('data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+                        silentAudioPoc.volume = 0;
+                        try {
+                            await silentAudioPoc.play();
+                            debugLog('[iOS PoC] Silent audio played successfully (after resume attempt).');
+                            // Check state again
+                             debugLog(`[iOS PoC] globalPocAudioContext state after silent play: ${window.globalPocAudioContext.state}`);
+                        } catch (playError) {
+                            debugLog(`[iOS PoC] Error playing silent audio (after resume attempt): ${playError.message}`, true, playError);
+                        }
+                    }
+                    
+                    debugLog(`[iOS PoC] Final globalPocAudioContext state: ${window.globalPocAudioContext.state}`);
+                    if (window.globalPocAudioContext.state === 'running') {
+                        debugLog('[iOS PoC] globalPocAudioContext is RUNNING. Main app can now try to use it.');
+                        // Potentially re-initialize client or parts of it if needed, or notify it.
+                        // For now, we rely on initializeApp passing it if it's running.
+                    }
+                    debugLog('[iOS PoC] Test finished.');
+
+                } catch (error) {
+                    debugLog(`[iOS PoC] General error during PoC test: ${error.message}`, true, error);
+                    if (window.globalPocAudioContext) {
+                        debugLog(`[iOS PoC] globalPocAudioContext state during general error: ${window.globalPocAudioContext.state}`);
+                    }
+                }
+            });
+        } else {
+            debugLog('[iOS PoC] POC Button not found', true);
+        }
+
+    </script>
+</body>
+</html>
