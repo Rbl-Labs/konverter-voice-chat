@@ -516,8 +516,29 @@ class GeminiTelegramClient {
         // If conversation is active (not paused by user), re-arm microphone for next user input
         if (!this.state.isConversationPaused && this.state.isGeminiSessionActive && this.state.isConnectedToWebSocket) {
             this.log('Turn complete, conversation active: Attempting to re-arm microphone.');
-            // Ensure audio context is good, then start recording
-            this.audioBridge.requestPermissionAndResumeContext().then(audioReady => {
+            
+            // Attempt to explicitly stop any existing recording in the bridge first, just in case.
+            // Pass `false` to stopRecording if it accepts an argument to not send another EOS.
+            // This depends on TelegramAudioBridge's stopRecording behavior.
+            // If it doesn't accept an argument, this might send an unwanted EOS.
+            // Assuming stopRecording() is safe to call if not recording.
+            const stopBridgeIfNeeded = async () => {
+                if (this.audioBridge.state && this.audioBridge.state.isRecording) {
+                    this.log('Ensuring bridge recording is stopped before re-arming...');
+                    try {
+                        // If stopRecording(false) means "stop without sending EOS", use it.
+                        // Otherwise, just stop(). The VAD already sent EOS.
+                        await this.audioBridge.stopRecording(false); 
+                    } catch (e) {
+                        this.log('Minor error ensuring bridge stop before re-arm', true, e);
+                    }
+                }
+            };
+
+            stopBridgeIfNeeded().then(() => {
+                this.log('Proceeding to request permission and re-arm mic.');
+                return this.audioBridge.requestPermissionAndResumeContext();
+            }).then(audioReady => {
                 if (audioReady) {
                     return this.audioBridge.startRecording();
                 }
