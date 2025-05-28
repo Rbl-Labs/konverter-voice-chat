@@ -508,11 +508,42 @@ class GeminiTelegramClient {
         this.log('Turn complete received from backend'); 
         this.state.transcriptions.input = ''; 
         this.state.transcriptions.output = '';
-        // If conversation is active (not paused by user), prepare for next user input
-        if (!this.state.isConversationPaused && window.uiController) {
-            window.uiController.updateInteractionButton('listening');
+        if (window.uiController) {
+            // Clear live transcription displays sooner
+            window.uiController.clearTranscriptions();
         }
-        setTimeout(() => { if (window.uiController) window.uiController.clearTranscriptions(); }, 2000); // Clear live display sooner
+
+        // If conversation is active (not paused by user), re-arm microphone for next user input
+        if (!this.state.isConversationPaused && this.state.isGeminiSessionActive && this.state.isConnectedToWebSocket) {
+            this.log('Turn complete, conversation active: Attempting to re-arm microphone.');
+            // Ensure audio context is good, then start recording
+            this.audioBridge.requestPermissionAndResumeContext().then(audioReady => {
+                if (audioReady) {
+                    return this.audioBridge.startRecording();
+                }
+                throw new Error('Audio context not ready for re-arming mic.');
+            }).then(started => {
+                if (started) {
+                    this.log('Microphone re-armed successfully for continuous conversation.');
+                    if (window.uiController) {
+                        window.uiController.updateInteractionButton('listening');
+                    }
+                } else {
+                    this.log('Failed to auto-restart recording after turn complete.', true);
+                    // If it fails to restart, perhaps revert to 'ready_to_play' so user can manually restart
+                    if (window.uiController) window.uiController.updateInteractionButton('ready_to_play');
+                }
+            }).catch(err => {
+                this.log('Error auto-restarting recording after turn complete', true, err);
+                if (window.uiController) window.uiController.updateInteractionButton('ready_to_play');
+            });
+        } else if (window.uiController && this.state.isConversationPaused) {
+            // If conversation was explicitly paused, ensure UI reflects 'ready_to_play'
+            window.uiController.updateInteractionButton('ready_to_play');
+        } else if (window.uiController) {
+            // If not connected or gemini session not active, reflect disconnected state
+             window.uiController.updateInteractionButton('disconnected');
+        }
     }
     
     handleInterruption() {
@@ -575,7 +606,15 @@ class GeminiTelegramClient {
     }
     
     handlePlaybackStart() { this.log('Audio playback started'); if (window.uiController) window.uiController.setAISpeaking(true); }
-    handlePlaybackEnd() { this.log('Audio playback ended'); if (window.uiController) window.uiController.setAISpeaking(false); }
+    handlePlaybackEnd() { 
+        this.log('Audio playback ended'); 
+        if (window.uiController) {
+            window.uiController.setAISpeaking(false);
+            // The decision to re-arm mic is now primarily in handleTurnComplete.
+            // UIController's setAISpeaking(false) will call updateInteractionButton, 
+            // which should correctly reflect 'listening' if conversation is active.
+        }
+    }
     handleVADSilenceDetected() { this.log('VAD silence detected - End of speech by AudioBridge'); } // AudioBridge handles EOS
     handleAudioError(error) { this.log(`AudioBridge error: ${error.message}`, true); if(window.uiController) window.uiController.updateStatusBanner(`Audio error: ${error.message}`, 'error'); }
     
