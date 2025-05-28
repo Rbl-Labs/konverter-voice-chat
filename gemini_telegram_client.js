@@ -5,23 +5,23 @@
 
 class GeminiTelegramClient {
     constructor(options = {}) {
+        // Initialize config first, as this.log depends on it.
+        this.config = {
+            debug: true,
+            reconnectAttempts: 3,
+            reconnectDelay: 2000,
+            sessionTimeout: 45000,
+            vadSilenceThreshold: 0.01,
+            vadRequiredSilenceDuration: 1500, //ms
+            healthCheckInterval: 30000,
+            connectionRetryDelay: 1000,
+            audioFeedbackEnabled: true,
+        };
+        
         this.log(`[Client v3.1.0] Constructor called with options:`, false, options);
         
         try {
             this.options = options;
-            this.config = {
-                debug: true,
-                reconnectAttempts: 3,
-                reconnectDelay: 2000,
-                sessionTimeout: 45000,
-                vadSilenceThreshold: 0.01,
-                vadRequiredSilenceDuration: 1500, //ms
-                healthCheckInterval: 30000,
-                connectionRetryDelay: 1000,
-                audioFeedbackEnabled: true,
-                // autoConnect: true, // This is now handled by UIController's connect button
-            };
-            
             this.state = {
                 sessionToken: null,
                 sessionConfig: null,
