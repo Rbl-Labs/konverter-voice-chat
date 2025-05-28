@@ -191,12 +191,21 @@
                 await loadScript('./telegram_audio_bridge_v3.js', 15000);
                 if (typeof TelegramAudioBridge === 'undefined') throw new Error('TelegramAudioBridge not defined');
 
-                debugLog('Loading UIController...'); // Will load ui_controller.js
+                // UIController is already loaded via its own <script> tag and self-initializes.
+                // We just need to ensure it's available on window.uiController.
+                debugLog('Checking for UIController...');
                 updateStatusBanner('Loading UI components...');
-                await loadScript('./ui_controller.js', 15000); // Corrected script name
-                if (typeof UIController === 'undefined') throw new Error('UIController not defined');
-                // UIController now self-initializes and attaches to window.uiController
-
+                if (typeof window.uiController === 'undefined' || typeof UIController === 'undefined') { // Check both class and instance
+                    // This might happen if the script tag for ui_controller.js failed or was removed.
+                    // For robustness, we could try loading it here if not found, but ideally, the script tag handles it.
+                    debugLog('UIController not found on window, attempting dynamic load (fallback)...');
+                    await loadScript('./ui_controller.js', 15000); 
+                    if (typeof UIController === 'undefined') throw new Error('UIController still not defined after dynamic load attempt');
+                    if (!window.uiController) window.uiController = new UIController(); // Ensure instance if loaded dynamically
+                } else {
+                    debugLog('UIController already available.');
+                }
+                
                 debugLog('Loading GeminiTelegramClient...');
                 updateStatusBanner('Loading client components...');
                 await loadScript('gemini_telegram_client.js', 15000);
