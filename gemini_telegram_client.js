@@ -1,35 +1,36 @@
 /**
  * Modern Gemini Telegram Client with enhanced mobile compatibility and error handling
- * Version: 3.0.3 (Added usage_metadata and improved debug_log handlers)
- * 
- * Integrated with modern UI controller for Siri-like interface
+ * Version: 3.1.0 (Integrates with UIController v3.1.0)
  */
 
 class GeminiTelegramClient {
-    constructor(options = {}) { // Accept options
-        console.log('🔄 [DEBUG] Modern GeminiTelegramClient v3.0.3 constructor called with options:', options);
+    constructor(options = {}) {
+        this.log(`[Client v3.1.0] Constructor called with options:`, false, options);
         
         try {
-            this.options = options; // Store options
+            this.options = options;
             this.config = {
                 debug: true,
                 reconnectAttempts: 3,
                 reconnectDelay: 2000,
                 sessionTimeout: 45000,
                 vadSilenceThreshold: 0.01,
-                vadRequiredSilenceDuration: 1500,
+                vadRequiredSilenceDuration: 1500, //ms
                 healthCheckInterval: 30000,
                 connectionRetryDelay: 1000,
                 audioFeedbackEnabled: true,
-                autoConnect: true // Automatically connect when mic is clicked
+                // autoConnect: true, // This is now handled by UIController's connect button
             };
             
             this.state = {
                 sessionToken: null,
                 sessionConfig: null,
-                isConnected: false,
+                isConnectedToWebSocket: false, // WebSocket connection to our backend
+                isGeminiSessionActive: false, // Gemini Live API session active
                 isInitialized: false,
                 isInitializing: false,
+                isConnecting: false, // Overall connection process state
+                isConversationPaused: true, // For Play/Stop logic
                 ws: null,
                 reconnectCount: 0,
                 reconnectTimer: null,
@@ -39,31 +40,28 @@ class GeminiTelegramClient {
                 connectionAttempts: 0,
                 maxConnectionAttempts: 5,
                 permissionState: 'unknown',
-                transcriptions: {
-                    input: '',
-                    output: ''
-                }
+                transcriptions: { input: '', output: '' }
             };
             
-            this.ui = window.uiController || null;
+            // UIController should be globally available as window.uiController
+            // It's initialized by voice_chat.html itself.
+            // We reference it here. If it's not ready, methods will check.
+            
             this.initialize();
             
         } catch (error) {
-            this.handleCriticalError('Constructor failed', error);
+            this.handleCriticalError('Client Constructor failed', error);
         }
     }
     
     async initialize() {
-        if (this.state.isInitializing) return;
+        if (this.state.isInitializing || this.state.isInitialized) return;
         this.state.isInitializing = true;
+        this.log('Starting client initialization...');
         
         try {
-            this.log('Starting enhanced initialization...');
             if (typeof TelegramAudioBridge === 'undefined') {
                 throw new Error('TelegramAudioBridge is not available');
-            }
-            if (!this.ui && window.uiController) {
-                this.ui = window.uiController;
             }
             
             const audioBridgeOptions = {
@@ -86,62 +84,41 @@ class GeminiTelegramClient {
             }
 
             this.audioBridge = new TelegramAudioBridge(audioBridgeOptions);
-            this.setupUI();
-            await this.initializeSession();
-            this.setupHealthMonitoring();
+            // UI setup is now primarily handled by UIController itself.
+            // This client will call UIController methods.
+            
+            await this.initializeSessionToken(); // Just get token, don't fetch config yet
+            this.setupHealthMonitoring(); // Can start even if not connected
+            
             this.state.isInitialized = true;
-            this.log('Enhanced initialization completed successfully');
+            this.log('Client core initialized. Ready for connect command.');
+            if (window.uiController) {
+                window.uiController.setConnectionState('disconnected'); // Initial state for UI
+            }
             
         } catch (error) {
-            this.handleCriticalError('Initialization failed', error);
+            this.handleCriticalError('Client Initialization failed', error);
         } finally {
             this.state.isInitializing = false;
         }
     }
-    
-    setupUI() {
-        try {
-            const micButton = document.getElementById('micButton');
-            if (micButton) {
-                micButton.addEventListener('click', () => {
-                    this.safeExecute(() => this.handleMicButtonClick());
-                });
-            }
-            this.log('UI setup completed');
-        } catch (error) {
-            this.log('UI setup error: ' + error.message, true);
-        }
-    }
-    
-    handleMicButtonClick() {
-        if (!this.state.isConnected && this.config.autoConnect) {
-            this.connectToWebSocket().then(() => {
-                setTimeout(() => { this.toggleRecording(); }, 500);
-            }).catch(err => {
-                this.log('Failed to connect WebSocket on mic click', true, err);
-                this.updateStatus('Connection failed. Tap mic to retry.', 'error');
-            });
-        } else {
-            this.toggleRecording();
-        }
-    }
-    
+
+    // UI related methods are now mostly in UIController.
+    // This client will call uiController methods.
+
     updateUIForPermissionState(state) {
         this.log(`Updating UI for permission state: ${state}`);
-        if (this.ui) {
-            this.ui.updateStatus(`Microphone: ${state}`, state === 'granted' ? 'success' : (state === 'denied' ? 'error' : 'warning'));
+        if (window.uiController) {
+            window.uiController.updateStatusBanner(`Microphone: ${state}`, state === 'granted' ? 'success' : (state === 'denied' ? 'error' : 'warning'));
+            const canInteract = state === 'granted' && this.state.isConnectedToWebSocket && this.state.isGeminiSessionActive;
+            window.uiController.updateInteractionButton(
+                canInteract ? (this.state.isConversationPaused ? 'ready_to_play' : 'listening') : 'disconnected',
+                canInteract 
+            );
         }
-        switch (state) {
-            case 'granted': if (this.ui) this.ui.updateMicButton(false, true); break;
-            case 'denied':
-                if (this.ui) {
-                    this.ui.updateMicButton(false, false);
-                    this.ui.addMessage('🎤 Microphone access is required. Please check settings.', 'system');
-                }
-                window.showPermissionGuidance(this.detectPlatform());
-                break;
-            case 'prompt': if (this.ui) this.ui.updateMicButton(false, true); break;
-            default: if (this.ui) this.ui.updateMicButton(false, false);
+        if (state === 'denied') {
+            if (window.uiController) window.uiController.addMessage('🎤 Microphone access is required. Please check settings.', 'system');
+            if (typeof window.showPermissionGuidance === 'function') window.showPermissionGuidance(this.detectPlatform());
         }
     }
     
@@ -157,45 +134,42 @@ class GeminiTelegramClient {
         this.updateUIForPermissionState(state);
     }
     
-    async initializeSession() {
+    async initializeSessionToken() { // Renamed from initializeSession, only gets token
         try {
-            this.log('Starting session initialization...');
-            this.updateStatus('Initializing session...');
+            this.log('Initializing session token...');
+            if (window.uiController) window.uiController.updateStatusBanner('Initializing session...', 'info');
+            
             const urlParams = new URLSearchParams(window.location.search);
             this.state.sessionToken = urlParams.get('session');
             if (!this.state.sessionToken || this.state.sessionToken.length < 10) {
                 throw new Error('Invalid or missing session token');
             }
-            this.log(`Session token: ${this.state.sessionToken.substring(0, 20)}...`);
-            this.state.sessionInitTimer = setTimeout(() => this.handleSessionInitTimeout(), this.config.sessionTimeout);
-            const sessionData = await this.fetchSessionConfigWithRetry();
-            if (this.state.sessionInitTimer) { clearTimeout(this.state.sessionInitTimer); this.state.sessionInitTimer = null; }
-            this.processSessionData(sessionData);
-            this.updateStatus('Session ready - Tap microphone to start', 'success');
-            if (this.ui) this.ui.updateMicButton(false, true);
+            this.log(`Session token obtained: ${this.state.sessionToken.substring(0, 20)}...`);
+            // Session config will be fetched upon connect()
         } catch (error) {
-            this.log(`Session initialization error: ${error.message}`, true);
-            this.handleSessionInitError(error);
+            this.log(`Session token initialization error: ${error.message}`, true);
+            this.handleSessionInitError(error); // Generic error display
+            throw error; // Re-throw to prevent connection attempts
         }
     }
-    
+
     async fetchSessionConfigWithRetry(maxRetries = 3) {
         let lastError;
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                this.log(`Session config attempt ${attempt}/${maxRetries}`);
+                this.log(`Fetching session config attempt ${attempt}/${maxRetries}`);
                 const apiUrl = `https://n8n.lomeai.com/webhook/voice-session?session=${this.state.sessionToken}&action=initialize`;
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 15000);
                 const response = await fetch(apiUrl, { signal: controller.signal, headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' } });
                 clearTimeout(timeoutId);
-                if (!response.ok) throw new Error(`API returned status ${response.status}: ${response.statusText}`);
+                if (!response.ok) throw new Error(`N8N API returned status ${response.status}: ${response.statusText}`);
                 const rawData = await response.json();
                 this.log(`Session config received: ${JSON.stringify(rawData).substring(0, 200)}...`);
                 return rawData;
             } catch (error) {
                 lastError = error;
-                this.log(`Session config attempt ${attempt} failed: ${error.message}`, true);
+                this.log(`Session config fetch attempt ${attempt} failed: ${error.message}`, true);
                 if (attempt < maxRetries) {
                     const delay = attempt * 2000;
                     this.log(`Retrying in ${delay}ms...`);
@@ -211,53 +185,154 @@ class GeminiTelegramClient {
             let data = Array.isArray(rawData) && rawData.length > 0 ? rawData[0] : rawData;
             if (!data || !data.success) throw new Error(data?.error || 'Session configuration invalid');
             this.state.sessionConfig = data.config;
-            const sessionInfoEl = document.getElementById('sessionInfo');
-            if (sessionInfoEl) sessionInfoEl.textContent = `Session: ${data.sessionId || 'N/A'} | User: ${data.userId || 'N/A'}`;
+            // const sessionInfoEl = document.getElementById('sessionInfo'); // This element might be removed/changed
+            // if (sessionInfoEl) sessionInfoEl.textContent = `Session: ${data.sessionId || 'N/A'} | User: ${data.userId || 'N/A'}`;
             this.log(`Session configured - Model: ${this.state.sessionConfig?.model}, WebSocket: ${this.state.sessionConfig?.websocketProxyUrl}`);
         } catch (error) {
             throw new Error('Failed to process session data: ' + error.message);
         }
     }
-    
-    handleSessionInitTimeout() {
-        this.log('Session initialization timed out', true);
-        this.updateStatus('Connection timed out - Tap to retry', 'error');
-        if (typeof window.debugLog === 'function') {
-            window.debugLog('[Client] Session initialization timed out', true);
-        }
-    }
-    
-    handleSessionInitError(error) {
-        this.updateStatus(`Failed to initialize: ${error.message}`, 'error');
+        
+    handleSessionInitError(error) { // More generic error handler
+        if (window.uiController) window.uiController.updateStatusBanner(`Initialization Error: ${error.message}`, 'error');
         if (this.state.sessionInitTimer) { clearTimeout(this.state.sessionInitTimer); this.state.sessionInitTimer = null; }
     }
-    
-    async connectToWebSocket() {
-        if (!this.state.isInitialized && !this.state.sessionConfig) {
-            try { await this.initializeSession(); } catch (error) { this.log('Failed to initialize before connection', true); return false; }
+
+    // --- New Public Methods for UIController ---
+    async connect() {
+        if (this.state.isConnecting || this.state.isConnectedToWebSocket) {
+            this.log('Connect called but already connecting or connected.');
+            return;
         }
-        if (this.state.connectionAttempts >= this.state.maxConnectionAttempts) {
-            this.updateStatus('Too many connection attempts. Please refresh.', 'error'); return false;
+        this.state.isConnecting = true;
+        if (window.uiController) window.uiController.setConnectionState('connecting');
+
+        try {
+            if (!this.state.sessionConfig) { // Fetch config if not already done
+                const sessionData = await this.fetchSessionConfigWithRetry();
+                this.processSessionData(sessionData);
+            }
+            await this.connectToWebSocket(); // Existing method, adapted
+        } catch (error) {
+            this.log('Connection process failed', true, error);
+            if (window.uiController) window.uiController.setConnectionState('error');
+            this.state.isConnecting = false;
+        }
+    }
+
+    disconnect(reason = 'User disconnected') {
+        this.log(`Disconnecting... Reason: ${reason}`);
+        this.state.isConversationPaused = true; // Ensure conversation is paused
+        if (this.audioBridge) { 
+            this.audioBridge.stopRecording(false); // Stop recording without sending EOS
+            this.audioBridge.stopPlayback(); 
+        }
+        if (this.state.ws) {
+            this.state.ws.close(1000, reason);
+            // onclose handler will call handleDisconnection and update UI
+        } else {
+            // If ws was never established or already null
+            this.handleDisconnection(reason);
+        }
+    }
+
+    async startConversation() {
+        if (!this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
+            this.log('Cannot start conversation: not fully connected.', true);
+            if(window.uiController) window.uiController.updateInteractionButton('disconnected');
+            return;
+        }
+        this.log('Starting conversation (Play pressed)');
+        this.state.isConversationPaused = false;
+        
+        // Ensure audio context is running and permissions are granted
+        if (!this.audioBridge.state || !this.audioBridge.state.initialized || this.state.permissionState !== 'granted') {
+            this.log('AudioBridge not ready or permissions not granted. Requesting...');
+            const audioReady = await this.audioBridge.requestPermissionAndResumeContext();
+            if (!audioReady) {
+                this.log('Audio setup failed for startConversation.', true);
+                if(window.uiController) window.uiController.updateInteractionButton('ready_to_play'); // Revert to play
+                this.state.isConversationPaused = true;
+                return;
+            }
+        }
+        
+        // Start recording if not already (VAD will handle sending data)
+        if (!this.audioBridge.state.isRecording) {
+            const started = await this.audioBridge.startRecording();
+            if (started) {
+                if (window.uiController) window.uiController.updateInteractionButton('listening');
+            } else {
+                this.log('Failed to start recording for conversation.', true);
+                if (window.uiController) window.uiController.updateInteractionButton('ready_to_play');
+                this.state.isConversationPaused = true;
+            }
+        } else {
+             if (window.uiController) window.uiController.updateInteractionButton('listening');
+        }
+    }
+
+    pauseConversation() {
+        this.log('Pausing conversation (Stop pressed)');
+        this.state.isConversationPaused = true;
+        if (this.audioBridge && this.audioBridge.state.isRecording) {
+            // Stop recording but don't necessarily send EOS immediately,
+            // as user might resume. Or send EOS if that's the desired "pause" behavior.
+            // For now, let's assume "pause" means stop sending audio.
+            this.audioBridge.stopRecording(true); // Send EOS on pause for now
+        }
+        if (window.uiController) {
+            window.uiController.updateInteractionButton('ready_to_play');
+            window.uiController.setUserSpeaking(false); // Ensure user wave stops
+        }
+    }
+
+    sendTextMessage(text) {
+        if (!this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
+            this.log('Cannot send text message: not fully connected.', true);
+            if(window.uiController) window.uiController.addMessage('Error: Not connected. Cannot send text.', 'system');
+            return;
+        }
+        this.log(`Sending text message to backend: "${text}"`);
+        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+            this.state.ws.send(JSON.stringify({ type: 'text_input', text: text, timestamp: Date.now() }));
+        } else {
+            this.log('WebSocket not open, cannot send text message.', true);
+        }
+    }
+    // --- End New Public Methods ---
+
+    async connectToWebSocket() { // Now an internal method, called by public connect()
+        if (this.state.connectionAttempts >= this.state.maxConnectionAttempts && this.state.maxConnectionAttempts > 0) {
+            if (window.uiController) window.uiController.setConnectionState('error');
+            this.log('Max connection attempts reached.', true);
+            return false;
         }
         this.state.connectionAttempts++;
+        
         try {
             this.log('WebSocket connection starting...');
-            this.updateStatus('Connecting to server...');
+            // UIController already set state to 'connecting'
             const wsUrl = this.state.sessionConfig?.websocketProxyUrl;
             if (!wsUrl) throw new Error('No WebSocket URL provided in session config');
-            if (this.state.ws) { this.state.ws.close(); this.state.ws = null; }
+            
+            if (this.state.ws) { 
+                this.log('Closing existing WebSocket before reconnecting.');
+                this.state.ws.onopen = null; this.state.ws.onmessage = null; 
+                this.state.ws.onerror = null; this.state.ws.onclose = null;
+                this.state.ws.close(); 
+                this.state.ws = null; 
+            }
             const fullWsUrl = `${wsUrl}&session=${this.state.sessionToken}`;
             this.log(`Connecting to: ${fullWsUrl}`);
             this.state.ws = new WebSocket(fullWsUrl);
-            this.setupWebSocketHandlers();
-            return new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => reject(new Error('Connection timeout')), 10000);
-                this.state.ws.onopen = () => { clearTimeout(timeout); resolve(true); };
-                this.state.ws.onerror = (err) => { clearTimeout(timeout); reject(err); };
-            });
+            this.setupWebSocketHandlers(); // Handlers will update UIController
+            
+            // No need for separate promise here, onopen/onerror will handle UI updates via UIController
         } catch (error) {
-            this.log(`Connection error: ${error.message}`, true);
-            this.updateStatus('Connection failed: ' + error.message, 'error');
+            this.log(`WebSocket connection setup error: ${error.message}`, true);
+            if (window.uiController) window.uiController.setConnectionState('error');
+            this.state.isConnecting = false; // Reset connecting flag
             return false;
         }
     }
@@ -267,99 +342,146 @@ class GeminiTelegramClient {
         const connectionTimeout = setTimeout(() => {
             if (this.state.ws && this.state.ws.readyState === WebSocket.CONNECTING) {
                 this.log('WebSocket connection timeout', true); this.state.ws.close();
-                this.updateStatus('Connection timeout', 'error'); this.handleConnectionFailure();
+                // onclose will be triggered, which calls handleDisconnection
             }
         }, 10000);
+
         this.state.ws.onopen = () => {
-            clearTimeout(connectionTimeout); this.log('WebSocket connection opened');
-            this.updateStatus('Connected, initializing session...');
-            this.state.reconnectCount = 0; this.state.connectionAttempts = 0; this.state.lastActivity = Date.now();
+            clearTimeout(connectionTimeout); 
+            this.log('WebSocket connection opened');
+            this.state.isConnectedToWebSocket = true;
+            this.state.isConnecting = false;
+            this.state.reconnectCount = 0; 
+            this.state.connectionAttempts = 0; 
+            this.state.lastActivity = Date.now();
+            // Backend will send 'session_initialized', then client sends 'connect_gemini'
+            // UIController state will be updated by 'session_initialized' and 'gemini_connected' handlers
+            if (window.uiController) window.uiController.updateStatusBanner('WebSocket connected. Initializing session...', 'info');
         };
+
         this.state.ws.onmessage = (event) => {
             this.state.lastActivity = Date.now();
             try { const message = JSON.parse(event.data); this.handleWebSocketMessage(message); }
             catch (error) { this.log(`Failed to parse message: ${error.message}`, true); }
         };
+
         this.state.ws.onerror = (error) => {
-            clearTimeout(connectionTimeout); this.log(`WebSocket error: ${error.message || 'Connection error'}`, true);
-            this.updateStatus('Connection error', 'error'); this.handleConnectionFailure();
+            clearTimeout(connectionTimeout); 
+            this.log(`WebSocket error: ${error.message || 'Connection error'}`, true);
+            this.state.isConnecting = false;
+            if (window.uiController) window.uiController.setConnectionState('error');
+            this.handleConnectionFailure(); // Attempt reconnect if configured
         };
+
         this.state.ws.onclose = (event) => {
-            clearTimeout(connectionTimeout); const reason = event.reason || 'Connection closed';
+            clearTimeout(connectionTimeout); 
+            const reason = event.reason || 'Connection closed';
             this.log(`WebSocket closed: ${event.code} ${reason}`);
-            this.updateStatus('Connection closed', 'error'); this.handleDisconnection(reason);
+            this.state.isConnecting = false;
+            this.handleDisconnection(reason); // This will update UIController
         };
     }
     
-    handleConnectionFailure() {
-        this.state.isConnected = false;
+    handleConnectionFailure() { // Called on WebSocket error or failed close
+        this.state.isConnectedToWebSocket = false;
+        this.state.isGeminiSessionActive = false;
+        this.state.isConnecting = false;
+
         if (this.state.reconnectCount < this.config.reconnectAttempts) {
             this.state.reconnectCount++;
             this.log(`Attempting reconnection ${this.state.reconnectCount}/${this.config.reconnectAttempts}...`);
-            this.updateStatus(`Reconnecting (${this.state.reconnectCount}/${this.config.reconnectAttempts})...`);
-            this.state.reconnectTimer = setTimeout(() => this.connectToWebSocket(), this.config.reconnectDelay);
+            if (window.uiController) window.uiController.updateStatusBanner(`Reconnecting (${this.state.reconnectCount}/${this.config.reconnectAttempts})...`, 'warning');
+            
+            this.state.reconnectTimer = setTimeout(() => {
+                // Call the public connect method which handles UI updates
+                this.connect().catch(err => this.log('Reconnect attempt failed.', true, err));
+            }, this.config.reconnectDelay * Math.pow(2, this.state.reconnectCount -1)); // Exponential backoff
+        } else {
+            this.log('Max reconnect attempts reached.', true);
+            if (window.uiController) window.uiController.setConnectionState('error'); // Final error state
         }
     }
     
     handleWebSocketMessage(message) {
-        this.log('Message handling:', { type: message.type, keys: Object.keys(message), ts: message.timestamp });
+        this.log('[Client] Message handling:', false, { type: message.type, ts: message.timestamp });
         try {
             switch (message.type) {
                 case 'session_initialized': this.handleSessionInitialized(); break;
                 case 'gemini_connected': this.handleGeminiConnected(); break;
-                case 'gemini_setup_complete': this.log('Gemini setup complete'); break;
+                case 'gemini_setup_complete': 
+                    this.log('Gemini setup complete from backend'); 
+                    this.state.isGeminiSessionActive = true; // Mark Gemini session as active
+                    // UIController state for connection is already 'connected' from gemini_connected
+                    // UIController interaction button should now be 'ready_to_play'
+                    if(window.uiController) window.uiController.updateInteractionButton('ready_to_play');
+                    break;
                 case 'gemini_disconnected': this.handleGeminiDisconnected(message.reason); break;
-                case 'audio_response': case 'live_audio_chunk': this.handleAudioResponse(message); break;
-                case 'text_response': if (this.ui) this.ui.addMessage(message.text, 'ai'); break;
+                case 'audio_response': this.handleAudioResponse(message); break;
+                case 'text_response': 
+                    if (window.uiController) window.uiController.addMessage(message.text, 'ai', message.isHTML || false); 
+                    break;
                 case 'error': this.handleServerError(message); break;
                 case 'input_transcription': this.handleInputTranscription(message); break;
                 case 'output_transcription': this.handleOutputTranscription(message); break;
-                case 'turn_complete': case 'audio_stream_complete': this.handleTurnComplete(); break;
+                case 'turn_complete': this.handleTurnComplete(); break;
                 case 'interrupted': this.handleInterruption(); break;
                 case 'pong': this.log('Received pong response'); break;
-                case 'health_check': this.log('Received health check'); break;
+                case 'health_check': this.log('Received health check from server'); break;
                 case 'usage_metadata': 
                     this.log('Received usage_metadata', false, message.usage);
                     break;
-                case 'debug_log':
-                    this.log(`[Backend Debug] ${message.message || ''}`, message.isError, message.data);
+                case 'debug_log': // Already handled by global debugLog if UIController is loaded
+                    // this.log(`[Backend Debug] ${message.message || ''}`, message.isError, message.data);
                     break;
-                case 'gemini_raw_output':
-                    this.log('Received RAW Gemini Output (see next log for stringified JSON):', false, message.data);
-                    console.log('[GEMINI RAW OUTPUT STRINGIFIED]:', JSON.stringify(message.data, null, 2));
+                case 'gemini_raw_output': // Already handled by global debugLog
+                    // this.log('Received RAW Gemini Output (see next log for stringified JSON):', false, message.data);
+                    // console.log('[GEMINI RAW OUTPUT STRINGIFIED]:', JSON.stringify(message.data, null, 2));
                     break;
                 default:
                     this.log(`Unknown message type: ${message.type}`, true, message);
             }
-        } catch (error) { this.log(`Error handling message: ${error.message}`, true); }
+        } catch (error) { this.log(`Error handling WebSocket message: ${error.message}`, true, error); }
     }
     
-    handleSessionInitialized() {
-        this.log('Session initialized successfully'); this.updateStatus('Session ready - Connecting to Gemini...');
+    handleSessionInitialized() { // Received from backend after WebSocket opens
+        this.log('Backend confirmed session initialized.');
+        // Now safe to send connect_gemini
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
             this.state.ws.send(JSON.stringify({ type: 'connect_gemini' }));
-            this.log('Sent connect_gemini message');
+            this.log('Sent connect_gemini message to backend');
+            // UIController connection state remains 'connecting' until gemini_connected
         }
     }
     
-    handleGeminiConnected() {
-        this.log('Gemini connected successfully'); this.state.isConnected = true;
-        this.updateStatus('Connected! Tap microphone to talk', 'connected');
-        if (this.ui) {
-            this.ui.updateMicButton(false, true);
-            this.ui.addMessage('🤖 Connected! Tap mic to talk.', 'ai');
+    handleGeminiConnected() { // Received from backend after it connects to Gemini
+        this.log('Backend confirmed Gemini connected successfully');
+        this.state.isGeminiSessionActive = true; // This is the crucial part for enabling interaction
+        this.state.isConversationPaused = true; // Start in paused state
+        if (window.uiController) {
+            window.uiController.setConnectionState('connected'); // This updates connect button to "Disconnect"
+            // updateInteractionButton will be called by setConnectionState to 'ready_to_play'
         }
     }
     
     handleGeminiDisconnected(reason) {
-        this.log(`Gemini disconnected: ${reason}`); this.handleDisconnection(reason);
-        if (this.ui) this.ui.addMessage(`🔌 Disconnected from Gemini: ${reason}`, 'system');
+        this.log(`Backend reported Gemini disconnected: ${reason}`);
+        this.state.isGeminiSessionActive = false;
+        // If WebSocket is still open, this means only Gemini part disconnected.
+        // UI should reflect this, perhaps by disabling interaction button but keeping "Disconnect" for WebSocket.
+        if (window.uiController) {
+            window.uiController.updateInteractionButton('disconnected'); // Disable interaction
+            window.uiController.updateStatusBanner(`Gemini session ended: ${reason}. Re-connect if needed.`, 'warning');
+            window.uiController.addMessage(`🔌 Gemini session ended: ${reason}`, 'system');
+        }
     }
     
     handleAudioResponse(message) {
         this.log(`Audio response. Mime: ${message.mimeType}, Len: ${message.audioData?.length}`);
         if (message.audioData && message.mimeType) {
-            try { this.audioBridge.playAudio(message.audioData, message.mimeType); if (this.ui) this.ui.setAISpeaking(true); }
+            try { 
+                this.audioBridge.playAudio(message.audioData, message.mimeType); 
+                if (window.uiController) window.uiController.setAISpeaking(true); 
+            }
             catch (error) { this.log(`Audio playback error: ${error.message}`, true); }
         } else { this.log('Invalid audio response format', true); }
     }
@@ -367,126 +489,158 @@ class GeminiTelegramClient {
     handleInputTranscription(message) {
         if (message.text) {
             this.state.transcriptions.input = message.text;
-            if (this.ui) { this.ui.updateInputTranscription(message.text); this.ui.addMessage(`🎤 You: ${message.text}`, 'user');}
+            if (window.uiController) { 
+                window.uiController.updateInputTranscription(message.text); 
+                // Decide if live voice transcriptions go to chat log. For now, let's keep them separate.
+                // If needed: this.ui.addMessage(`🎤 You: ${message.text}`, 'user');
+            }
         }
     }
     
     handleOutputTranscription(message) {
-        if (message.text) { this.state.transcriptions.output = message.text; if (this.ui) this.ui.updateOutputTranscription(message.text); }
+        if (message.text) { 
+            this.state.transcriptions.output = message.text; 
+            if (window.uiController) window.uiController.updateOutputTranscription(message.text); 
+        }
     }
     
     handleTurnComplete() {
-        this.log('Turn complete'); this.state.transcriptions.input = ''; this.state.transcriptions.output = '';
-        setTimeout(() => { if (this.ui) this.ui.clearTranscriptions(); }, 3000);
+        this.log('Turn complete received from backend'); 
+        this.state.transcriptions.input = ''; 
+        this.state.transcriptions.output = '';
+        // If conversation is active (not paused by user), prepare for next user input
+        if (!this.state.isConversationPaused && window.uiController) {
+            window.uiController.updateInteractionButton('listening');
+        }
+        setTimeout(() => { if (window.uiController) window.uiController.clearTranscriptions(); }, 2000); // Clear live display sooner
     }
     
     handleInterruption() {
-        this.log('Model generation interrupted'); this.audioBridge.stopPlayback();
-        if (this.ui) { this.ui.setAISpeaking(false); this.ui.addMessage('(interrupted)', 'system');}
-    }
-    
-    handleServerError(message) { this.log(`Server error: ${message.message}`, true); this.updateStatus(message.message, 'error');}
-    
-    async toggleRecording() {
-        if (!this.state.isConnected && this.config.autoConnect) {
-            try { await this.connectToWebSocket(); } catch (error) { this.updateStatus('Please connect first', 'error'); return; }
-        }
-        try {
-            if (this.audioBridge.state && this.audioBridge.state.isRecording) {
-                await this.audioBridge.stopRecording();
-                if (this.ui) { this.ui.updateMicButton(false); this.ui.setUserSpeaking(false); }
-                this.updateStatus('Connected! Tap microphone to talk', 'connected');
-            } else {
-                if (!this.audioBridge.state || !this.audioBridge.state.initialized) {
-                    this.log('AudioBridge not initialized, attempting to initialize/resume context first...');
-                    if (typeof this.audioBridge.requestPermissionAndResumeContext === 'function') {
-                        const audioReady = await this.audioBridge.requestPermissionAndResumeContext();
-                        if (!audioReady) {
-                            this.updateStatus('Audio setup failed. Check permissions.', 'error');
-                            return;
-                        }
-                    } else { 
-                        const initialized = await this.audioBridge.initialize();
-                        if (!initialized) { this.updateStatus('Audio init failed. Check permissions.', 'error'); return; }
-                    }
-                }
-                const started = await this.audioBridge.startRecording();
-                if (started) {
-                    if (this.ui) { this.ui.updateMicButton(true); this.ui.setUserSpeaking(true); }
-                    this.updateStatus('Listening... Speak now', 'recording');
-                } else { this.updateStatus('Failed to start recording', 'error'); }
+        this.log('Model generation interrupted'); 
+        this.audioBridge.stopPlayback();
+        if (window.uiController) { 
+            window.uiController.setAISpeaking(false); 
+            window.uiController.addMessage('(AI interrupted)', 'system');
+            if (!this.state.isConversationPaused) {
+                 window.uiController.updateInteractionButton('listening'); // Ready for user again
             }
-        } catch (error) {
-            this.log(`Recording toggle error: ${error.message}`, true);
-            this.updateStatus('Recording error: ' + error.message, 'error');
         }
     }
     
-    handleAudioStart() { this.log('Audio recording started'); if (this.ui) this.ui.setUserSpeaking(true); }
-    handleAudioEnd() { this.log('Audio recording ended'); if (this.ui) this.ui.setUserSpeaking(false); }
+    handleServerError(message) { 
+        this.log(`Server error: ${message.message}`, true); 
+        if(window.uiController) window.uiController.updateStatusBanner(message.message, 'error');
+    }
+    
+    // toggleRecording is now effectively split into startConversation and pauseConversation
+    
+    handleAudioStart() { 
+        this.log('Audio recording started by AudioBridge'); 
+        if (window.uiController) window.uiController.setUserSpeaking(true); 
+        // UIController's updateInteractionButton('user_speaking') will be called from its setUserSpeaking
+    }
+    handleAudioEnd() { // This is when VAD stops or user manually stops mic via bridge
+        this.log('Audio recording ended by AudioBridge'); 
+        if (window.uiController) {
+            window.uiController.setUserSpeaking(false);
+            // If conversation is active, transition to processing or back to listening
+            if (this.state.isConnectedToWebSocket && this.state.isGeminiSessionActive && !this.state.isConversationPaused) {
+                 window.uiController.updateInteractionButton('processing'); // Or 'listening' if EOS was sent
+            }
+        }
+    }
     
     handleAudioData(audioData, isEndOfSpeech) {
-        if (!this.state.ws || this.state.ws.readyState !== WebSocket.OPEN) { this.log('WebSocket not connected for sending audio', true); return; }
+        if (this.state.isConversationPaused) {
+            this.log('Conversation is paused, not sending audio data.');
+            // If VAD is still running and EOS is detected, ensure recording stops.
+            if (isEndOfSpeech && this.audioBridge.state.isRecording) {
+                this.audioBridge.stopRecording(false); // Stop without sending another EOS
+            }
+            return;
+        }
+        if (!this.state.ws || this.state.ws.readyState !== WebSocket.OPEN) { 
+            this.log('WebSocket not connected for sending audio', true); return; 
+        }
         const messagePayload = { type: 'audio_input', audioData, mimeType: 'audio/webm;codecs=opus', isEndOfSpeech, timestamp: Date.now() };
-        try { this.state.ws.send(JSON.stringify(messagePayload)); this.log(`Audio sent: ${audioData ? audioData.length : 0}b, EOS: ${isEndOfSpeech}`); }
+        try { 
+            this.state.ws.send(JSON.stringify(messagePayload)); 
+            this.log(`Audio sent: ${audioData ? audioData.length : 0}b, EOS: ${isEndOfSpeech}`); 
+            if (isEndOfSpeech && window.uiController) {
+                // After sending EOS, UI might show processing state
+                window.uiController.updateInteractionButton('processing');
+            }
+        }
         catch (error) { this.log(`Failed to send audio: ${error.message}`, true); }
     }
     
-    handlePlaybackStart() { this.log('Audio playback started'); if (this.ui) this.ui.setAISpeaking(true); }
-    handlePlaybackEnd() { this.log('Audio playback ended'); if (this.ui) this.ui.setAISpeaking(false); }
-    handleVADSilenceDetected() { this.log('VAD silence detected - End of speech'); }
-    handleAudioError(error) { this.log(`Audio error: ${error.message}`, true); this.updateStatus(`Audio error: ${error.message}`, 'error'); }
+    handlePlaybackStart() { this.log('Audio playback started'); if (window.uiController) window.uiController.setAISpeaking(true); }
+    handlePlaybackEnd() { this.log('Audio playback ended'); if (window.uiController) window.uiController.setAISpeaking(false); }
+    handleVADSilenceDetected() { this.log('VAD silence detected - End of speech by AudioBridge'); } // AudioBridge handles EOS
+    handleAudioError(error) { this.log(`AudioBridge error: ${error.message}`, true); if(window.uiController) window.uiController.updateStatusBanner(`Audio error: ${error.message}`, 'error'); }
     
-    disconnect(reason = 'User disconnected') {
-        this.log(`Disconnecting... Reason: ${reason}`);
-        if (this.audioBridge) { this.audioBridge.stopRecording(); this.audioBridge.stopPlayback(); }
-        if (this.state.ws) this.state.ws.close(1000, reason);
-        this.handleDisconnection(reason);
-    }
+    // disconnect method already exists, ensure it calls handleDisconnection
     
-    handleDisconnection(reason = 'Unknown reason') {
-        this.state.isConnected = false;
+    handleDisconnection(reason = 'Unknown reason') { // Called on WebSocket close or manual disconnect
+        this.log(`Handling disconnection. Reason: ${reason}`);
+        this.state.isConnectedToWebSocket = false;
+        this.state.isGeminiSessionActive = false;
+        this.state.isConnecting = false;
+        this.state.isConversationPaused = true; // Reset conversation state
+
         if (this.state.reconnectTimer) { clearTimeout(this.state.reconnectTimer); this.state.reconnectTimer = null; }
-        if (this.ui) { this.ui.setUserSpeaking(false); this.ui.setAISpeaking(false); this.ui.updateMicButton(false, true); }
-        this.updateStatus(`Disconnected: ${reason}. Tap mic to reconnect.`, 'error');
+        
+        if (window.uiController) {
+            window.uiController.setConnectionState('disconnected'); // This updates connect and interaction buttons
+        }
     }
     
     setupHealthMonitoring() {
         this.state.healthCheckTimer = setInterval(() => {
-            if (this.state.isConnected && this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+            if (this.state.isConnectedToWebSocket && this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
                 try { this.state.ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() })); }
-                catch (error) { this.log(`Health check failed: ${error.message}`, true); }
+                catch (error) { this.log(`Health check ping failed: ${error.message}`, true); }
             }
         }, this.config.healthCheckInterval);
     }
     
-    updateStatus(message, type = '') {
-        if (this.ui) this.ui.updateStatus(message, type);
-        else { const el = document.getElementById('status'); if (el) { el.textContent = message; el.className = 'status ' + type; }}
-        this.log(`Status: ${message} (${type})`);
-    }
+    // updateStatus is now primarily handled by UIController.updateStatusBanner
     
     handleCriticalError(context, error) {
-        const message = `${context}: ${error.message}`; this.log(message, true);
-        if (typeof window.debugLog === 'function') window.debugLog(message, true, error);
-        if (typeof window.showCriticalError === 'function') window.showCriticalError(message, error.stack);
+        const message = `${context}: ${error.message}`; 
+        this.log(message, true, error); // Log to console via this client's logger
+        if (typeof window.showCriticalError === 'function') { // Global HTML function
+            window.showCriticalError(message, error.stack);
+        }
     }
     
-    safeExecute(fn) { try { return fn(); } catch (error) { this.log(`Safe execution failed: ${error.message}`, true); }}
+    safeExecute(fn) { try { return fn(); } catch (error) { this.log(`Safe execution failed: ${error.message}`, true, error); }}
     
     dispose() {
         this.log('Disposing client...');
         [this.state.sessionInitTimer, this.state.reconnectTimer, this.state.healthCheckTimer].forEach(t => t && clearTimeout(t));
         if (this.audioBridge) this.audioBridge.dispose();
-        if (this.state.ws) this.state.ws.close();
+        if (this.state.ws) {
+            this.state.ws.onopen = null; this.state.ws.onmessage = null; 
+            this.state.ws.onerror = null; this.state.ws.onclose = null;
+            this.state.ws.close();
+        }
         this.log('Client disposed');
     }
     
-    log(message, isError = false, data = null) {
-        if (this.config.debug) {
+    log(message, isError = false, data = null) { // Internal logger
+        if (this.config.debug || isError) { // Always log errors
             const logMethod = isError ? console.error : console.log;
-            logMethod('[Modern GeminiTelegramClient]', message, data || '');
-            if (typeof window.debugLog === 'function') window.debugLog(`[Client] ${message}`, isError, data);
+            const prefix = '[GeminiClient]';
+            if (data !== null && data !== undefined) {
+                logMethod(prefix, message, data);
+            } else {
+                logMethod(prefix, message);
+            }
+            // Use global debugLog if available (from voice_chat.html) for UI debug panel
+            if (typeof window.debugLog === 'function') {
+                 window.debugLog(`[Client] ${message}`, isError, data);
+            }
         }
     }
 }
