@@ -78,9 +78,7 @@ class GeminiTelegramClient {
                 onPlaybackStart: () => this.handlePlaybackStart(), 
                 onPlaybackEnd: () => this.handlePlaybackEnd()    
             });
-            // Try to initialize PCMPlayer with a 24kHz AudioContext if possible
-            // This matches the sample rate of audio from Gemini backend
-            await this.pcmPlayer.initialize(); // PCMStreamPlayer now attempts 24kHz internally
+            await this.pcmPlayer.initialize(); 
             this.log('PCMStreamPlayer instantiated and initialized.');
             
             await this.initializeSessionToken();

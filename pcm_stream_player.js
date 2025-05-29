@@ -82,25 +82,29 @@ export class PCMStreamPlayer {
             this.log('Player not initialized. Call initialize() first.', true);
             return;
         }
+        let pcmData = this._base64PCM16toFloat32(base64PcmData);
+        if (pcmData.length === 0) return;
+
+        // Resample if necessary
         if (this.audioContext.sampleRate !== sampleRate) {
-            this.log(`Warning: AudioContext sample rate (${this.audioContext.sampleRate}Hz) does not match incoming chunk sample rate (${sampleRate}Hz). This may cause pitch/speed issues. Re-initializing context is complex; ideally, all audio is at context's rate or resampled before sending.`, true);
-            // For simplicity, we'll proceed, but this is a potential issue.
-            // A robust solution would involve resampling or ensuring consistent sample rates.
+            this.log(`Resampling audio from ${sampleRate}Hz to ${this.audioContext.sampleRate}Hz.`);
+            pcmData = this._resampleLinear(pcmData, sampleRate, this.audioContext.sampleRate);
+            // After resampling, the 'sampleRate' for queue and playbackChunkSizeSamples should be the context's rate
+            sampleRate = this.audioContext.sampleRate; 
         }
 
-        const float32Array = this._base64PCM16toFloat32(base64PcmData);
-        if (float32Array.length === 0) return;
-
-        const newBuffer = new Float32Array(this.processingBuffer.length + float32Array.length);
+        const newBuffer = new Float32Array(this.processingBuffer.length + pcmData.length);
         newBuffer.set(this.processingBuffer);
-        newBuffer.set(float32Array, this.processingBuffer.length);
+        newBuffer.set(pcmData, this.processingBuffer.length);
         this.processingBuffer = newBuffer;
 
-        const playbackChunkSizeSamples = Math.floor(sampleRate * (this.chunkProcessSizeMs / 1000));
+        // Use the AudioContext's sample rate for chunking after potential resampling
+        const contextSampleRate = this.audioContext.sampleRate;
+        const playbackChunkSizeSamples = Math.floor(contextSampleRate * (this.chunkProcessSizeMs / 1000));
 
         while (this.processingBuffer.length >= playbackChunkSizeSamples) {
             const bufferToPlay = this.processingBuffer.slice(0, playbackChunkSizeSamples);
-            this.audioQueue.push({ data: bufferToPlay, sampleRate: sampleRate });
+            this.audioQueue.push({ data: bufferToPlay, sampleRate: contextSampleRate }); // Use context's SR
             this.processingBuffer = this.processingBuffer.slice(playbackChunkSizeSamples);
         }
 
@@ -125,11 +129,19 @@ export class PCMStreamPlayer {
         }
         if (this.audioQueue.length === 0) {
             // Not enough data to play, wait for more or for processingBuffer to fill
+            // Check if remaining processingBuffer is enough to form a chunk
+            const contextSampleRate = this.audioContext.sampleRate;
+            const playbackChunkSizeSamples = Math.floor(contextSampleRate * (this.chunkProcessSizeMs / 1000));
+            if (this.processingBuffer.length > 0 && this.processingBuffer.length < playbackChunkSizeSamples) {
+                // If there's a small remnant, and we are not expecting more data soon, play it out after a short delay
+                // This part needs careful handling to avoid cutting off audio or waiting too long.
+                // For now, we'll rely on the main loop to push it to audioQueue if it becomes large enough.
+            }
             setTimeout(() => this._scheduleNextBuffer(), 50); // Check again soon
             return;
         }
 
-        const audioChunk = this.audioQueue.shift();
+        const audioChunk = this.audioQueue.shift(); // audioChunk.sampleRate is now context's rate
         const audioBuffer = this.audioContext.createBuffer(1, audioChunk.data.length, audioChunk.sampleRate);
         audioBuffer.getChannelData(0).set(audioChunk.data);
 
@@ -182,9 +194,36 @@ export class PCMStreamPlayer {
         // If we created the AudioContext, we can close it.
         // If it was passed in, the owner should close it.
         // For now, assume we own it if we created it.
-        if (this.audioContext && !this.options?.audioContext) { // A bit heuristic
-            this.audioContext.close().then(() => this.log('AudioContext closed by PCMStreamPlayer.'));
+        if (this.audioContext && !this.options?.audioContext && this.audioContext.state !== 'closed') { 
+            this.audioContext.close().then(() => this.log('AudioContext closed by PCMStreamPlayer.')).catch(e => this.log('Error closing AudioContext', true, e));
         }
         this.isInitialized = false;
+    }
+
+    _resampleLinear(inputBuffer, fromRate, toRate) {
+        if (fromRate === toRate) {
+            return inputBuffer;
+        }
+        const outputLength = Math.round(inputBuffer.length * toRate / fromRate);
+        const outputBuffer = new Float32Array(outputLength);
+        const ratio = fromRate / toRate;
+
+        for (let i = 0; i < outputLength; i++) {
+            const inputIndexFloat = i * ratio;
+            const inputIndexFloor = Math.floor(inputIndexFloat);
+            const inputIndexCeil = Math.min(inputBuffer.length - 1, Math.ceil(inputIndexFloat));
+            const fraction = inputIndexFloat - inputIndexFloor;
+
+            if (inputIndexFloor === inputIndexCeil) { // Exact match or at the very end
+                outputBuffer[i] = inputBuffer[inputIndexFloor];
+            } else {
+                // Linear interpolation
+                const val1 = inputBuffer[inputIndexFloor];
+                const val2 = inputBuffer[inputIndexCeil];
+                outputBuffer[i] = val1 + (val2 - val1) * fraction;
+            }
+        }
+        this.log(`Resampled chunk from ${inputBuffer.length} (${fromRate}Hz) to ${outputBuffer.length} (${toRate}Hz) samples.`);
+        return outputBuffer;
     }
 }
