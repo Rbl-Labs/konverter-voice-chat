@@ -124,6 +124,7 @@ class EnhancedTelegramGeminiSession {
         this.currentUtteranceWebmChunks = [];
         this.turnCount = 0;
         this.audioProcessingQueue = [];
+        this.currentGeminiPcmAudioBuffers = []; // Buffer for accumulating Gemini's PCM audio
 
         this.log('Enhanced session created', { sessionToken: this.sessionToken.substring(0, 20) + '...', timestamp: new Date().toISOString() });
         connectionStats.totalConnections++;
@@ -230,15 +231,161 @@ class EnhancedTelegramGeminiSession {
 
     handleGeminiOpen(modelName) { this.log(`Gemini Live API connected successfully`); this.isConnected = true; this.resetTimeout(); this.sendMessage({ type: 'gemini_connected', message: `Connected to Gemini Live API (${modelName})`, modelType: this.modelType, timestamp: new Date().toISOString() }); this.notifyN8n('connection_established', { modelName }); }
     handleGeminiError(error, modelName) { this.log(`Gemini error`, { error: error.message, model: modelName }, true); this.sendMessage({ type: 'gemini_error', message: error.message, modelType: this.modelType, timestamp: new Date().toISOString(), retryable: !error.message.includes('quota') && !error.message.includes('billing') }); this.notifyN8n('gemini_error', { error: error.message, modelName }); }
-    handleGeminiClose(event, modelName) { const reason = event?.reason || (event instanceof Error ? event.message : 'Unknown reason'); this.log(`Gemini connection closed: ${reason}`); this.isConnected = false; this.sendMessage({ type: 'gemini_disconnected', reason: reason, modelType: this.modelType, timestamp: new Date().toISOString(), retryable: !reason.includes('quota') && !error.message.includes('billing') }); this.notifyN8n('connection_closed', { reason, modelName }); }
+    handleGeminiClose(event, modelName) { const reason = event?.reason || (event instanceof Error ? event.message : 'Unknown reason'); this.log(`Gemini connection closed: ${reason}`); this.isConnected = false; this.sendMessage({ type: 'gemini_disconnected', reason: reason, modelType: this.modelType, timestamp: new Date().toISOString(), retryable: !(reason.includes('quota') || reason.includes('billing')) }); this.notifyN8n('connection_closed', { reason, modelName }); }
     getDefaultModelForType() { return this.modelType === '2.5' ? 'gemini-2.5-flash-preview-native-audio-dialog' : 'gemini-2.0-flash-live-001'; }
     buildConnectionConfig() { const n8nLiveConnectConfig = this.sessionConfigFromN8n?.config || {}; let defaultConfig; if (this.modelType === '2.5') { defaultConfig = { responseModalities: [this.Modality.AUDIO], enableAffectiveDialog: true, proactivity: { proactiveAudio: true }, speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } } }, systemInstruction: { parts: [{ text: "You are a helpful AI assistant having a natural voice conversation with a user through Telegram. Be conversational, friendly, and concise in your responses. Respond naturally as if you're having a real-time phone conversation. Keep responses brief and engaging." }] }, inputAudioTranscription: {}, outputAudioTranscription: {}, realtimeInputConfig: { automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 0, silenceDurationMs: 0 } } }; } else { defaultConfig = { responseModalities: [this.Modality.AUDIO], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }, languageCode: 'en-US' }, systemInstruction: { parts: [{ text: "You are a helpful AI assistant having a natural voice conversation with a user through Telegram. Be conversational, friendly, and concise in your responses. Respond naturally as if you're having a real-time phone conversation. Keep responses brief and engaging." }] }, inputAudioTranscription: {}, realtimeInputConfig: { automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 0, silenceDurationMs: 0 } } }; } return { ...defaultConfig, ...n8nLiveConnectConfig }; }
     
-    async handleGeminiMessage(message) { this.log('Processing Gemini message', { type: message.type || 'unknown', hasSetupComplete: !!message.setupComplete, hasServerContent: !!message.serverContent }); try { if (message.setupComplete) { this.log('Gemini setup completed'); this.sendMessage({ type: 'gemini_setup_complete', modelType: this.modelType, timestamp: new Date().toISOString() }); return; } if (message.serverContent) { await this.processServerContent(message.serverContent); } if (message.usageMetadata) { this.log('Token usage', message.usageMetadata); this.sendMessage({ type: 'usage_metadata', usage: message.usageMetadata, timestamp: new Date().toISOString() }); } } catch (error) { this.log('Error handling Gemini message', { error: error.message }, true); this.sendMessage({ type: 'error', message: 'Error processing Gemini response: ' + error.message, modelType: this.modelType, timestamp: new Date().toISOString() }); } }
-    async processServerContent(serverContent) { if (serverContent.modelTurn?.parts) { this.log('Processing model turn with parts'); for (const part of serverContent.modelTurn.parts) { if (part.text) { this.sendMessage({ type: 'text_response', text: part.text, modelType: this.modelType, timestamp: new Date().toISOString() }); this.conversationHistory.push({ type: 'ai_response', text: part.text, timestamp: new Date().toISOString() }); } if (part.inlineData?.data) { try { const audioChunk = await this.convertPcmToWavForTelegram(part.inlineData.data); this.sendMessage({ type: 'audio_response', audioData: audioChunk.base64, mimeType: audioChunk.mimeType, sampleRate: audioChunk.sampleRate, modelType: this.modelType, timestamp: Date.now() }); } catch (error) { this.log('Audio conversion error', { error: error.message }, true); } } } } if (serverContent.turnComplete) { this.sendMessage({ type: 'turn_complete', modelType: this.modelType, timestamp: new Date().toISOString() }); this.logConversationTurn(); } if (serverContent.interrupted) { this.sendMessage({ type: 'interrupted', modelType: this.modelType, timestamp: new Date().toISOString() }); } if (serverContent.inputTranscription) { this.sendMessage({ type: 'input_transcription', text: serverContent.inputTranscription.text, modelType: this.modelType, timestamp: new Date().toISOString() }); } if (serverContent.outputTranscription) { this.sendMessage({ type: 'output_transcription', text: serverContent.outputTranscription.text, modelType: this.modelType, timestamp: new Date().toISOString() }); } }
+    async handleGeminiMessage(message) {
+        // Log and send the raw message to the client for inspection
+        this.log('Raw Gemini message received by backend', { /* Avoid logging full message here if too verbose for server logs, client will get it */ });
+        this.sendMessage({ type: 'gemini_raw_output', data: message, timestamp: new Date().toISOString() });
+
+        this.log('Processing Gemini message', { type: message.type || 'unknown', hasSetupComplete: !!message.setupComplete, hasServerContent: !!message.serverContent });
+        try {
+            if (message.setupComplete) {
+                this.log('Gemini setup completed');
+                this.sendMessage({ type: 'gemini_setup_complete', modelType: this.modelType, timestamp: new Date().toISOString() });
+                return;
+            }
+            if (message.serverContent) {
+                await this.processServerContent(message.serverContent);
+            }
+            if (message.usageMetadata) {
+                this.log('Token usage', message.usageMetadata);
+                this.sendMessage({ type: 'usage_metadata', usage: message.usageMetadata, timestamp: new Date().toISOString() });
+            }
+        } catch (error) {
+            this.log('Error handling Gemini message', { error: error.message }, true);
+            this.sendMessage({ type: 'error', message: 'Error processing Gemini response: ' + error.message, modelType: this.modelType, timestamp: new Date().toISOString() });
+        }
+    }
+    async processServerContent(serverContent) {
+        if (serverContent.modelTurn?.parts) {
+            this.log('Processing model turn with parts for streaming PCM.');
+            for (const part of serverContent.modelTurn.parts) {
+                if (part.text) {
+                    this.sendMessage({ type: 'text_response', text: part.text, modelType: this.modelType, timestamp: new Date().toISOString() });
+                    this.conversationHistory.push({ type: 'ai_response', text: part.text, timestamp: new Date().toISOString() });
+                }
+                // Stream PCM audio chunks directly
+                if (part.inlineData?.data && part.inlineData.mimeType && part.inlineData.mimeType.startsWith('audio/pcm')) {
+                    this.log(`Received PCM audio chunk from Gemini (mimeType: ${part.inlineData.mimeType}), forwarding to client. Size: ${part.inlineData.data.length}`);
+                    this.sendMessage({
+                        type: 'ai_audio_chunk_pcm', // New message type for client
+                        audioData: part.inlineData.data, // This is base64 PCM
+                        sampleRate: 24000, // Gemini native audio is 24kHz. Client needs to handle this rate.
+                        mimeType: 'audio/pcm', 
+                        timestamp: Date.now()
+                    });
+                } else if (part.inlineData?.data) {
+                    this.log(`Received non-PCM inlineData from Gemini, mimeType: ${part.inlineData.mimeType}. Not streaming this type.`, null, true);
+                }
+            }
+        }
+
+        // The logic for accumulating currentGeminiPcmAudioBuffers and sending a single WAV on turnComplete
+        // will be deprecated by streaming PCM chunks directly.
+        // For now, we'll leave it, but it shouldn't receive data if PCM is streamed above.
+        // If Gemini sends *only* audio and no text parts, and then a turnComplete,
+        // the old logic might still try to send an empty WAV if currentGeminiPcmAudioBuffers is empty.
+        // This needs to be cleaned up once PCM streaming is confirmed working.
+
+        if (serverContent.turnComplete) {
+            this.log('Turn complete received from Gemini.');
+            // If we were accumulating and converting to WAV, that logic would be here.
+            // Since we are now streaming PCM chunks, we primarily just forward the turn_complete signal.
+            if (this.currentGeminiPcmAudioBuffers.length > 0) {
+                this.log('Warning: currentGeminiPcmAudioBuffers has data at turnComplete, but PCM streaming is active. This old audio data will be discarded.', null, true);
+                this.currentGeminiPcmAudioBuffers = []; // Discard, as we're streaming PCM directly
+            }
+            this.sendMessage({ type: 'turn_complete', modelType: this.modelType, timestamp: new Date().toISOString() });
+            this.logConversationTurn();
+        }
+
+        if (serverContent.interrupted) {
+            this.sendMessage({ type: 'interrupted', modelType: this.modelType, timestamp: new Date().toISOString() });
+            // Clear any pending audio if interrupted
+            if (this.currentGeminiPcmAudioBuffers.length > 0) {
+                this.log('Clearing accumulated audio buffers due to interruption.');
+                this.currentGeminiPcmAudioBuffers = [];
+            }
+        }
+        if (serverContent.inputTranscription) {
+            this.sendMessage({ type: 'input_transcription', text: serverContent.inputTranscription.text, modelType: this.modelType, timestamp: new Date().toISOString() });
+        }
+        if (serverContent.outputTranscription) {
+            this.sendMessage({ type: 'output_transcription', text: serverContent.outputTranscription.text, modelType: this.modelType, timestamp: new Date().toISOString() });
+        }
+        // Note: generationComplete might also be a signal, but turnComplete is more definitive for an entire turn.
+        // If generationComplete comes before turnComplete and all audio parts are guaranteed to have arrived by then,
+        // we could potentially process audio on generationComplete. For now, turnComplete is safer.
+    }
     
-    async handleClientMessage(data) { try { this.resetTimeout(); if (data.length > MAX_MESSAGE_SIZE) throw new Error(`Message too large: ${data.length} bytes`); const message = JSON.parse(data); this.log(`Received client message: ${message.type}`, { hasAudioData: !!message.audioData, audioDataLength: message.audioData?.length || 0, timestamp: message.timestamp }); switch (message.type) { case 'connect_gemini': await this.connectToGemini(); break; case 'audio_input': await this.handleAudioInput(message); break; case 'disconnect_gemini': this.disconnectGemini('Client requested disconnect'); break; case 'ping': this.handlePing(message); break; default: this.log(`Unknown message type: ${message.type}`, null, true); this.sendMessage({ type: 'error', message: `Unknown message type: ${message.type}`, timestamp: new Date().toISOString() }); } } catch (error) { this.log('Error handling client message', { error: error.message }, true); this.sendMessage({ type: 'error', message: 'Failed to process message: ' + error.message, modelType: this.modelType, timestamp: new Date().toISOString() }); } }
+    async handleClientMessage(data) { try { this.resetTimeout(); if (data.length > MAX_MESSAGE_SIZE) throw new Error(`Message too large: ${data.length} bytes`); const message = JSON.parse(data); this.log(`Received client message: ${message.type}`, { hasAudioData: !!message.audioData, audioDataLength: message.audioData?.length || 0, textLength: message.text?.length || 0, sampleRate: message.sampleRate, timestamp: message.timestamp }); switch (message.type) { case 'connect_gemini': await this.connectToGemini(); break; case 'audio_input': await this.handleAudioInput(message); break; case 'audio_input_pcm': await this.handleAudioInputPCM(message); break; case 'text_input': await this.handleTextInput(message); break; case 'disconnect_gemini': this.disconnectGemini('Client requested disconnect'); break; case 'ping': this.handlePing(message); break; default: this.log(`Unknown message type: ${message.type}`, null, true); this.sendMessage({ type: 'error', message: `Unknown message type: ${message.type}`, timestamp: new Date().toISOString() }); } } catch (error) { this.log('Error handling client message', { error: error.message }, true); this.sendMessage({ type: 'error', message: 'Failed to process message: ' + error.message, modelType: this.modelType, timestamp: new Date().toISOString() }); } }
     handlePing(message) { this.pingCount++; this.lastPingTime = Date.now(); this.sendMessage({ type: 'pong', pingId: message.pingId, timestamp: message.timestamp, serverTime: this.lastPingTime, modelType: this.modelType, connectionStatus: this.isConnected ? 'connected' : 'disconnected' }); }
+
+    async handleAudioInputPCM(message) {
+        if (!this.isConnected || !this.liveSession) {
+            this.sendMessage({ type: 'error', message: 'Not connected to Gemini, cannot process PCM audio.', modelType: this.modelType, retryable: true });
+            this.log('Cannot process PCM audio input, not connected to Gemini.', null, true);
+            return;
+        }
+        if (!message.audioData) {
+            this.log('Received audio_input_pcm without audioData, ignoring.', null, true);
+            return;
+        }
+        this.resetTimeout();
+        try {
+            const sampleRate = message.sampleRate || 16000; // Default to 16kHz if not provided
+            this.log(`Processing PCM audio input`, { audioDataLength: message.audioData.length, sampleRate: sampleRate, timestamp: message.timestamp });
+
+            const audioInput = {
+                audio: {
+                    data: message.audioData, // Expecting base64 PCM from client
+                    mimeType: `audio/pcm;rate=${sampleRate}`
+                }
+            };
+            await this.liveSession.sendRealtimeInput(audioInput);
+            // this.log(`PCM audio chunk sent to Gemini.`); // This might be too verbose for every chunk
+            // With continuous PCM, Gemini's server-side VAD (automaticActivityDetection) handles end-of-speech.
+            // The client does not send an explicit isEndOfSpeech flag with PCM chunks.
+        } catch (error) {
+            this.log('Error sending PCM audio input to Gemini', { error: error.message }, true);
+            this.sendMessage({ type: 'error', message: 'Failed to process PCM audio: ' + error.message, modelType: this.modelType, timestamp: new Date().toISOString() });
+        }
+    }
+
+    async handleTextInput(message) {
+        if (!this.isConnected || !this.liveSession) {
+            this.sendMessage({ type: 'error', message: 'Not connected to Gemini. Cannot send text.', modelType: this.modelType, retryable: true });
+            this.log('Cannot send text input, not connected to Gemini.', null, true);
+            return;
+        }
+        if (!message.text || message.text.trim().length === 0) {
+            this.log('Received empty text_input from client, ignoring.', null, true);
+            return;
+        }
+        this.resetTimeout();
+        try {
+            this.log(`Processing text input: "${message.text.substring(0, 50)}..."`);
+            this.conversationHistory.push({ type: 'user_text', text: message.text, timestamp: new Date(message.timestamp || Date.now()).toISOString() });
+            
+            // Ensure any pending audio from user is sent before this text
+            // This might require more complex queueing if audio and text can be sent very close together.
+            // For now, assume text input implies end of any concurrent audio input from user.
+            if (this.currentUtteranceWebmChunks.length > 0) {
+                this.log('User sent text while audio chunks were buffered. Processing buffered audio first...');
+                await this.processEndOfSpeech(); // Process and send any pending audio
+            }
+
+            await this.liveSession.sendRealtimeInput({ parts: [{ text: message.text }] });
+            this.log('Text input sent to Gemini successfully.');
+            // Gemini's response will be handled by handleGeminiMessage
+        } catch (error) {
+            this.log('Error sending text input to Gemini', { error: error.message }, true);
+            this.sendMessage({ type: 'error', message: 'Failed to send text to AI: ' + error.message, modelType: this.modelType, timestamp: new Date().toISOString() });
+        }
+    }
     
     async handleAudioInput(message) { if (!this.isConnected || !this.liveSession) { this.sendMessage({ type: 'error', message: 'Not connected to Gemini', modelType: this.modelType, retryable: true }); return; } this.resetTimeout(); try { this.log(`Processing audio input`, { hasAudioData: !!message.audioData, isEndOfSpeech: message.isEndOfSpeech, timestamp: message.timestamp }); if (message.audioData) { const webmBuffer = Buffer.from(message.audioData, 'base64'); this.currentUtteranceWebmChunks.push(webmBuffer); this.log(`Buffered audio chunk, total: ${this.currentUtteranceWebmChunks.length}`); } if (message.isEndOfSpeech) { await this.processEndOfSpeech(); } } catch (error) { this.log('Error in handleAudioInput', { error: error.message }, true); this.sendMessage({ type: 'error', message: 'Failed to process audio: ' + error.message, modelType: this.modelType, timestamp: new Date().toISOString() }); } }
 
