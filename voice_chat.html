@@ -210,8 +210,8 @@
                 
                 debugLog('Loading GeminiTelegramClient...');
                 updateStatusBanner('Loading client components...');
-                // Load gemini_telegram_client.js as a module
-                await loadScript('gemini_telegram_client.js', 15000, 'module'); 
+                // Load gemini_telegram_client.js as a module, with explicit ./ prefix
+                await loadScript('./gemini_telegram_client.js', 15000, 'module'); 
                 if (typeof window.GeminiTelegramClient === 'undefined') throw new Error('GeminiTelegramClient not defined on window');
 
                 debugLog('Creating GeminiTelegramClient instance...');
