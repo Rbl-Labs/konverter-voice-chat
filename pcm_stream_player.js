@@ -31,8 +31,16 @@ export class PCMStreamPlayer {
 
         if (audioContext && audioContext instanceof AudioContext) {
             this.audioContext = audioContext;
+            this.log(`Using provided AudioContext. State: ${this.audioContext.state}, SampleRate: ${this.audioContext.sampleRate}`);
         } else {
-            this.audioContext = new AudioContext();
+            // Attempt to create AudioContext with 24000Hz sample rate, matching Gemini's output
+            try {
+                this.audioContext = new AudioContext({ sampleRate: 24000 });
+                this.log(`AudioContext initialized with requested sampleRate: 24000Hz. Actual: ${this.audioContext.sampleRate}Hz`);
+            } catch (e) {
+                this.log('Failed to create AudioContext with 24kHz, falling back to default.', true, e);
+                this.audioContext = new AudioContext(); // Fallback
+            }
         }
         
         if (this.audioContext.state === 'suspended') {
