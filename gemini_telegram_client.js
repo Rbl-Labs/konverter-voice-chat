@@ -12,8 +12,8 @@ class GeminiTelegramClient {
             reconnectAttempts: 3,
             reconnectDelay: 2000,
             sessionTimeout: 45000,
-            // vadSilenceThreshold and vadRequiredSilenceDuration are for TelegramAudioBridge,
-            // AdvancedAudioRecorder doesn't use them directly in this client.
+            // vadSilenceThreshold and vadRequiredSilenceDuration are for TelegramAudioBridge (playback part if it uses them)
+            // AdvancedAudioRecorder doesn't use them directly in this client for its PCM stream.
             healthCheckInterval: 30000,
             connectionRetryDelay: 1000,
             audioFeedbackEnabled: true, // For playback
@@ -42,11 +42,11 @@ class GeminiTelegramClient {
                 maxConnectionAttempts: 5,
                 permissionState: 'unknown', // 'unknown', 'prompt', 'granted', 'denied'
                 transcriptions: { input: '', output: '' },
-                aiPlayedAudioThisTurn: false // To track if AI audio was played in the current turn
+                aiPlayedAudioThisTurn: false 
             };
             
             this.advancedRecorder = null;
-            this.audioBridgeForPlayback = null; // For playing AI responses
+            this.audioBridgeForPlayback = null; 
 
             this.initialize();
             
@@ -61,7 +61,6 @@ class GeminiTelegramClient {
         this.log('Starting client initialization with AdvancedAudioRecorder...');
         
         try {
-            // Initialize AdvancedAudioRecorder for input
             if (typeof AdvancedAudioRecorder === 'undefined') {
                 throw new Error('AdvancedAudioRecorder is not available. Make sure it is imported from ./advanced_audio_recorder.js');
             }
@@ -72,7 +71,6 @@ class GeminiTelegramClient {
             });
             this.log('AdvancedAudioRecorder instantiated.');
 
-            // Keep TelegramAudioBridge for PLAYBACK ONLY for now
             if (typeof TelegramAudioBridge === 'undefined') {
                 this.log('TelegramAudioBridge not available, playback will fail.', true);
             } else {
@@ -82,7 +80,7 @@ class GeminiTelegramClient {
                     onPlaybackEnd: () => this.handlePlaybackEnd(),
                     onError: (error) => this.handleAudioError(`Playback Error: ${error.message || error}`)
                 };
-                 if (this.options.audioContext && this.options.audioContext.state === 'running') { // Pass if main app created one
+                 if (this.options.audioContext && this.options.audioContext.state === 'running') {
                     audioBridgePlaybackOptions.audioContext = this.options.audioContext;
                 }
                 this.audioBridgeForPlayback = new TelegramAudioBridge(audioBridgePlaybackOptions);
@@ -224,14 +222,14 @@ class GeminiTelegramClient {
             this.advancedRecorder.stop();
             this.log('AdvancedAudioRecorder stopped.');
         }
-        if (this.audioBridgeForPlayback) { 
+        if (this.audioBridgeForPlayback && typeof this.audioBridgeForPlayback.stopPlayback === 'function') { 
             this.audioBridgeForPlayback.stopPlayback(); 
             this.log('TelegramAudioBridge playback stopped.');
         }
         if (this.state.ws) {
             this.state.ws.close(1000, reason);
         } else {
-            this.handleDisconnection(reason);
+            this.handleDisconnection(reason); // Ensure UI updates if ws was never there
         }
     }
 
@@ -247,16 +245,13 @@ class GeminiTelegramClient {
         try {
             if (!this.advancedRecorder.isRecording) {
                 this.log('AdvancedAudioRecorder not recording, starting it...');
-                // Start will request permissions if needed and initialize AudioContext
                 await this.advancedRecorder.start(this.handlePCMDataFromRecorder.bind(this));
             }
-            // Ensure mic is active (not suspended)
             this.advancedRecorder.resumeMic(); 
             if (window.uiController) {
                 window.uiController.updateInteractionButton('listening');
-                window.uiController.setUserSpeaking(true); // Indicate user can speak
+                window.uiController.setUserSpeaking(true); 
             }
-
         } catch (error) {
             this.log('Error starting/resuming AdvancedAudioRecorder for conversation.', true, error);
             if(window.uiController) window.uiController.updateInteractionButton('ready_to_play');
@@ -270,8 +265,6 @@ class GeminiTelegramClient {
         if (this.advancedRecorder && this.advancedRecorder.isRecording && !this.advancedRecorder.isSuspended) {
             this.advancedRecorder.suspendMic();
             this.log('User mic suspended via AdvancedAudioRecorder.');
-            // Consider sending an explicit 'user_speech_end' if backend needs it
-            // when relying on server-side VAD for continuous PCM.
         }
         if (window.uiController) {
             window.uiController.updateInteractionButton('ready_to_play');
@@ -412,6 +405,10 @@ class GeminiTelegramClient {
                 case 'usage_metadata': 
                     this.log('Received usage_metadata', false, message.usage);
                     break;
+                case 'gemini_raw_output': 
+                    this.log('Received RAW Gemini Output from backend (see console for stringified JSON):', false, message.data);
+                    // console.log('[GEMINI RAW OUTPUT STRINGIFIED]:', JSON.stringify(message.data, null, 2));
+                    break;
                 default:
                     this.log(`Unknown message type: ${message.type}`, true, message);
             }
@@ -453,7 +450,7 @@ class GeminiTelegramClient {
                     if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording && !this.advancedRecorder.isSuspended) {
                         this.log('Suspending user mic for AI speech playback.');
                         this.advancedRecorder.suspendMic();
-                        if(window.uiController) window.uiController.setUserSpeaking(false); // Ensure user wave stops
+                        if(window.uiController) window.uiController.setUserSpeaking(false); 
                     }
                     this.audioBridgeForPlayback.playAudio(message.audioData, message.mimeType); 
                     if (window.uiController) window.uiController.setAISpeaking(true); 
@@ -490,18 +487,14 @@ class GeminiTelegramClient {
         }
 
         if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording) {
-            // If AI didn't play audio (e.g., text-only response, or interruption before audio)
-            // and mic was suspended, resume it.
             if (this.advancedRecorder.isSuspended && !this.state.aiPlayedAudioThisTurn) {
                  this.log('Turn complete (no AI audio or AI was cut short), resuming user mic.');
                  this.advancedRecorder.resumeMic();
                  if (window.uiController) {
                     window.uiController.updateInteractionButton('listening');
-                    window.uiController.setUserSpeaking(true); // Indicate user can speak
+                    window.uiController.setUserSpeaking(true); 
                  }
             } else if (!this.advancedRecorder.isSuspended) {
-                // If mic was already active (e.g. AI spoke very fast, playbackEnd already resumed)
-                // ensure UI is in listening state.
                 if (window.uiController) {
                     window.uiController.updateInteractionButton('listening');
                     window.uiController.setUserSpeaking(true);
@@ -510,7 +503,7 @@ class GeminiTelegramClient {
         } else if (window.uiController && this.state.isConversationPaused) {
             window.uiController.updateInteractionButton('ready_to_play');
         }
-        this.state.aiPlayedAudioThisTurn = false; // Reset for next turn
+        this.state.aiPlayedAudioThisTurn = false; 
     }
     
     handleInterruption() {
@@ -520,7 +513,6 @@ class GeminiTelegramClient {
             window.uiController.setAISpeaking(false); 
             window.uiController.addMessage('(AI interrupted)', 'system');
         }
-        // If conversation is active, resume user mic as AI was cut short
         if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording) {
              this.log('AI interrupted, resuming user mic.');
              this.advancedRecorder.resumeMic();
@@ -536,7 +528,6 @@ class GeminiTelegramClient {
         if(window.uiController) window.uiController.updateStatusBanner(message.message, 'error');
     }
     
-    // New method for AdvancedAudioRecorder PCM data
     handlePCMDataFromRecorder(pcmInt16Array) {
         if (this.state.isConversationPaused || !this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
             return;
@@ -561,8 +552,6 @@ class GeminiTelegramClient {
                 timestamp: Date.now()
             };
             this.state.ws.send(JSON.stringify(messagePayload));
-            // User speaking UI is handled by UIController when conversation starts/resumes.
-            // No explicit EOS from client with continuous PCM; server-side VAD from Gemini is expected.
         }
     }
     
@@ -582,7 +571,7 @@ class GeminiTelegramClient {
             this.advancedRecorder.resumeMic();
             if (window.uiController) {
                 window.uiController.updateInteractionButton('listening');
-                window.uiController.setUserSpeaking(true); // Indicate user can speak again
+                window.uiController.setUserSpeaking(true); 
             }
         }
     }

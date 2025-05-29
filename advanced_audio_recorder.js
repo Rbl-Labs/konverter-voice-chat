@@ -123,23 +123,22 @@ export class AdvancedAudioRecorder {
             this.log(`Cannot suspend: Not recording or already suspended. Recording: ${this.isRecording}, Suspended: ${this.isSuspended}`);
             return;
         }
-        if (this.audioContext && this.audioContext.state === 'running') {
-            // Disconnecting the source from worklet can effectively pause data flow to worklet
-            if (this.mediaStreamSource && this.workletNode) {
-                try {
-                    this.mediaStreamSource.disconnect(this.workletNode);
-                    this.log('Microphone input to worklet suspended (source disconnected).');
-                } catch (e) {
-                     this.log('Error disconnecting mediaStreamSource on suspend.', true, e);
+        if (this.mediaStream) {
+            this.mediaStream.getTracks().forEach(track => {
+                if (track.readyState === 'live') { // Check if track is live before trying to disable
+                    track.enabled = false;
                 }
-            }
-            // Tracks can also be disabled, though disconnecting source might be enough
-            this.mediaStream.getTracks().forEach(track => track.enabled = false);
+            });
             this.isSuspended = true;
-            this.log('Microphone suspended.');
+            this.log('Microphone tracks disabled (suspended).');
         } else {
-            this.log('AudioContext not running, cannot suspend.', true);
+            this.log('No mediaStream to suspend tracks on.', true);
         }
+        // Optionally, suspend AudioContext if no other audio is playing and power saving is critical.
+        // For rapid turn-taking, keeping context running might be better.
+        // if (this.audioContext && this.audioContext.state === 'running') {
+        //     this.audioContext.suspend().then(() => this.log('AudioContext suspended for mic pause.'));
+        // }
     }
 
     resumeMic() {
@@ -147,35 +146,29 @@ export class AdvancedAudioRecorder {
             this.log(`Cannot resume: Not recording or not suspended. Recording: ${this.isRecording}, Suspended: ${this.isSuspended}`);
             return;
         }
-        if (this.audioContext && (this.audioContext.state === 'running' || this.audioContext.state === 'suspended')) {
-             // Ensure context is running
-            if (this.audioContext.state === 'suspended') {
-                this.audioContext.resume().then(() => this.log('AudioContext resumed for mic.')).catch(e => this.log('Error resuming AC for mic', true, e));
+        if (this.mediaStream) {
+            // Ensure AudioContext is running
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+                this.audioContext.resume().then(() => {
+                    this.log('AudioContext resumed for mic.');
+                    // Enable tracks after context is confirmed running
+                    this.mediaStream.getTracks().forEach(track => track.enabled = true);
+                    this.isSuspended = false;
+                    this.log('Microphone tracks enabled (resumed).');
+                }).catch(e => this.log('Error resuming AudioContext for mic', true, e));
+            } else if (this.audioContext && this.audioContext.state === 'running') {
+                this.mediaStream.getTracks().forEach(track => track.enabled = true);
+                this.isSuspended = false;
+                this.log('Microphone tracks enabled (resumed).');
+            } else {
+                this.log('AudioContext not in a resumable state.', true);
             }
-            // Reconnect source to worklet
-            if (this.mediaStreamSource && this.workletNode && !this.isMediaStreamSourceConnected()) {
-                 try {
-                    this.mediaStreamSource.connect(this.workletNode);
-                    this.log('Microphone input to worklet resumed (source reconnected).');
-                } catch (e) {
-                    this.log('Error reconnecting mediaStreamSource on resume.', true, e);
-                }
-            }
-            this.mediaStream.getTracks().forEach(track => track.enabled = true);
-            this.isSuspended = false;
-            this.log('Microphone resumed.');
         } else {
-             this.log('AudioContext not available or closed, cannot resume.', true);
+             this.log('No mediaStream to resume tracks on.', true);
         }
     }
     
-    // Helper to check connection (not foolproof for all scenarios but a basic check)
-    isMediaStreamSourceConnected() {
-        // Web Audio API doesn't offer a direct way to check if a node is connected to another.
-        // This is a simplification. In a real scenario, manage connection state explicitly.
-        // For now, assume if workletNode exists, we try to connect.
-        return true; // Placeholder
-    }
+    // isMediaStreamSourceConnected() can be removed as we are not disconnecting/reconnecting nodes.
 
     stop() {
         if (!this.isRecording) {
