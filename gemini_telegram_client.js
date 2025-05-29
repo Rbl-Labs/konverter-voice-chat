@@ -418,6 +418,10 @@ class GeminiTelegramClient {
                     break;
                 case 'gemini_raw_output': 
                     this.log('Received RAW Gemini Output from backend (see console for stringified JSON):', false, message.data);
+                    // console.log('[GEMINI RAW OUTPUT STRINGIFIED]:', JSON.stringify(message.data, null, 2)); // Optional: for dev debugging
+                    break;
+                case 'debug_log': // Handler for debug messages from backend
+                    this.log(`[Backend Debug] ${message.message || ''}`, message.isError || message.level === 'ERROR', message.data);
                     break;
                 default:
                     this.log(`Unknown message type: ${message.type}`, true, message);
