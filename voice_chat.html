@@ -166,13 +166,15 @@
             const spinnerEl = document.getElementById('loadingSpinner');
             if (spinnerEl) spinnerEl.style.display = show ? 'block' : 'none';
         }
-        async function loadScript(src, timeout = 10000) { /* Same as your current script */
+        async function loadScript(src, timeout = 10000, type = 'text/javascript') { // Added 'type' parameter
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script');
                 const timeoutId = setTimeout(() => { script.remove(); reject(new Error(`Script loading timeout: ${src}`)); }, timeout);
                 script.onload = () => { clearTimeout(timeoutId); resolve(); };
                 script.onerror = (e) => { clearTimeout(timeoutId); script.remove(); reject(new Error(`Script loading failed: ${src}`)); };
-                script.src = `${src}?v=${Date.now()}`; script.type = 'text/javascript'; document.head.appendChild(script);
+                script.src = `${src}?v=${Date.now()}`; 
+                script.type = type; // Use the provided type
+                document.head.appendChild(script);
             });
         }
 
@@ -208,8 +210,9 @@
                 
                 debugLog('Loading GeminiTelegramClient...');
                 updateStatusBanner('Loading client components...');
-                await loadScript('gemini_telegram_client.js', 15000);
-                if (typeof GeminiTelegramClient === 'undefined') throw new Error('GeminiTelegramClient not defined');
+                // Load gemini_telegram_client.js as a module
+                await loadScript('gemini_telegram_client.js', 15000, 'module'); 
+                if (typeof window.GeminiTelegramClient === 'undefined') throw new Error('GeminiTelegramClient not defined on window');
 
                 debugLog('Creating GeminiTelegramClient instance...');
                 updateStatusBanner('Initializing client...');
