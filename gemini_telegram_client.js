@@ -666,3 +666,8 @@ class GeminiTelegramClient {
         }
     }
 }
+
+// Explicitly attach to window object to make it globally accessible when loaded as a module
+if (typeof window !== 'undefined') {
+    window.GeminiTelegramClient = GeminiTelegramClient;
+}
