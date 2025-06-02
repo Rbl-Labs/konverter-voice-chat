@@ -190,7 +190,7 @@
 
                 debugLog('Loading TelegramAudioBridge...');
                 updateStatusBanner('Loading audio components...');
-                await loadScript('./telegram_audio_bridge_v3.js', 15000);
+                await loadScript('./telegram_audio_bridge.js', 15000);
                 if (typeof TelegramAudioBridge === 'undefined') throw new Error('TelegramAudioBridge not defined');
 
                 // UIController is already loaded via its own <script> tag and self-initializes.
