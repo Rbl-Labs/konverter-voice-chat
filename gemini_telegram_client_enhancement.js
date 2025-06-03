@@ -28,7 +28,7 @@ window.enhanceGeminiClient = function(originalClient) {
     // Add enhancement properties
     originalClient.messageBuffer = '';
     originalClient.messageTimeout = null;
-    originalClient.messageAggregationDelay = 3000; // 3 seconds for complete sentences
+    originalClient.messageAggregationDelay = 5000; // Increased to 5 seconds for more complete sentences
     originalClient.sentenceEndRegex = /[.!?]\s*$/; // Better sentence detection
     originalClient.isTextChatEnabled = true; // Always allow text during sessions
     originalClient.messageHistory = []; // Store for recent messages
@@ -40,11 +40,13 @@ window.enhanceGeminiClient = function(originalClient) {
     originalClient.handleWebSocketMessage = function(message) {
         console.log('[ENHANCE] Processing message:', message.type);
         
-        // Handle new aggregated text responses
-        if (message.type === 'text_response') {
-            this.aggregateMessage(message.text);
-            return; // Don't send to original handler for text_response
-        }
+    // Handle new aggregated text responses
+    if (message.type === 'text_response') {
+        this.aggregateMessage(message.text);
+        // Don't call the original handler for text_response
+        // to avoid duplicate messages in the UI
+        return;
+    }
         
         // CRITICAL: Handle ALL existing backend message types
         switch (message.type) {
@@ -120,7 +122,9 @@ window.enhanceGeminiClient = function(originalClient) {
         }, this.messageAggregationDelay);
         
         // Check for sentence endings to flush immediately
-        if (this.sentenceEndRegex.test(text.trim())) {
+        // Only flush if we have a reasonable amount of text (at least 15 chars)
+        if (this.messageBuffer.length > 15 && this.sentenceEndRegex.test(text.trim())) {
+            console.log('[ENHANCE] Detected sentence end, flushing buffer');
             clearTimeout(this.messageTimeout);
             setTimeout(() => this.flushMessageBuffer(), 500); // Small delay for natural flow
         }
@@ -145,7 +149,13 @@ window.enhanceGeminiClient = function(originalClient) {
             
             // Send to UI controller
             if (window.uiController) {
+                // Add message to both the conversation log and recent messages display
                 window.uiController.addMessage(completeMessage, 'ai');
+                
+                // Also update recent messages display directly to ensure visibility
+                if (typeof window.uiController.addToRecentMessages === 'function') {
+                    window.uiController.addToRecentMessages(completeMessage);
+                }
             }
             
             console.log(`[ENHANCE] Flushed complete message: "${completeMessage.substring(0, 100)}..."`);
