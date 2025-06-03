@@ -438,8 +438,35 @@ class GeminiTelegramClient {
         // Send user information to backend if available
         if (this.userData) {
             this.log('Sending user information to backend');
+            
+            // Add debug message to UI
+            if (window.uiController) {
+                window.uiController.addMessage(`[DEBUG] Attempting to send user info to backend: ${JSON.stringify(this.userData)}`, 'system');
+            }
+            
+            // Check if sendUserInfo method exists
             if (typeof this.sendUserInfo === 'function') {
-                this.sendUserInfo();
+                try {
+                    const result = this.sendUserInfo();
+                    if (window.uiController) {
+                        window.uiController.addMessage(`[DEBUG] sendUserInfo result: ${result}`, 'system');
+                    }
+                } catch (error) {
+                    this.log('Error calling sendUserInfo', { error: error.message }, true);
+                    if (window.uiController) {
+                        window.uiController.addMessage(`[DEBUG] Error calling sendUserInfo: ${error.message}`, 'system');
+                    }
+                }
+            } else {
+                this.log('sendUserInfo method not found', null, true);
+                if (window.uiController) {
+                    window.uiController.addMessage('[DEBUG] sendUserInfo method not found', 'system');
+                }
+            }
+        } else {
+            this.log('No user data available to send');
+            if (window.uiController) {
+                window.uiController.addMessage('[DEBUG] No user data available to send', 'system');
             }
         }
         

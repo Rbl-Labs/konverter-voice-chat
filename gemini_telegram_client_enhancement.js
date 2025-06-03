@@ -261,11 +261,17 @@ window.enhanceGeminiClient = function(originalClient) {
     originalClient.sendUserInfo = function() {
         if (!this.userData) {
             console.log('[ENHANCE] No user data to send');
+            if (window.uiController) {
+                window.uiController.addMessage('[DEBUG] No user data to send to backend', 'system');
+            }
             return;
         }
         
         if (!this.state.isConnectedToWebSocket) {
             console.log('[ENHANCE] Cannot send user info: not connected to WebSocket');
+            if (window.uiController) {
+                window.uiController.addMessage('[DEBUG] Cannot send user info: not connected to WebSocket', 'system');
+            }
             return;
         }
         
@@ -273,22 +279,43 @@ window.enhanceGeminiClient = function(originalClient) {
         
         // Send user info to backend
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ 
-                type: 'user_info_update', 
-                userData: this.userData, 
-                timestamp: Date.now() 
-            }));
-            
-            console.log('[ENHANCE] User info sent to backend');
-            
-            // Add to UI
-            if (window.uiController) {
-                window.uiController.updateStatusBanner(`Connected as ${this.userData.name}`, 'connected');
+            try {
+                const message = { 
+                    type: 'user_info_update', 
+                    userData: this.userData, 
+                    timestamp: Date.now() 
+                };
+                
+                console.log('[ENHANCE] Sending WebSocket message:', message);
+                if (window.uiController) {
+                    window.uiController.addMessage(`[DEBUG] Sending user info: ${this.userData.name}, ${this.userData.email}`, 'system');
+                }
+                
+                this.state.ws.send(JSON.stringify(message));
+                
+                console.log('[ENHANCE] User info sent to backend');
+                
+                // Add to UI
+                if (window.uiController) {
+                    window.uiController.updateStatusBanner(`Connected as ${this.userData.name}`, 'connected');
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('[ENHANCE] Error sending user info:', error);
+                if (window.uiController) {
+                    window.uiController.addMessage(`[DEBUG] Error sending user info: ${error.message}`, 'system');
+                }
+                return false;
             }
-            
-            return true;
         } else {
-            console.log('[ENHANCE] WebSocket not ready for sending user info');
+            console.log('[ENHANCE] WebSocket not ready for sending user info', {
+                wsExists: !!this.state.ws,
+                readyState: this.state.ws ? this.state.ws.readyState : 'N/A'
+            });
+            if (window.uiController) {
+                window.uiController.addMessage('[DEBUG] WebSocket not ready for sending user info', 'system');
+            }
             return false;
         }
     };
