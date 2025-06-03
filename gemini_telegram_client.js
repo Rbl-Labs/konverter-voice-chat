@@ -200,12 +200,57 @@ class GeminiTelegramClient {
                 const sessionData = await this.fetchSessionConfigWithRetry();
                 this.processSessionData(sessionData);
             }
+            
+            // Connect to WebSocket but don't connect to Gemini yet
             await this.connectToWebSocket();
+            
+            // Check if we have user data in localStorage
+            const userName = localStorage.getItem('user_name');
+            const userEmail = localStorage.getItem('user_email');
+            
+            if (userName || userEmail) {
+                this.userData = {
+                    name: userName,
+                    email: userEmail
+                };
+                this.log('Found user data in localStorage:', false, this.userData);
+            }
+            
+            // Show user form if no data is available
+            if (!this.userData && window.UserForm) {
+                this.log('No user data found, showing form');
+                this.showUserForm();
+            }
         } catch (error) {
             this.log('Connection process failed', true, error);
             if (window.uiController) window.uiController.setConnectionState('error');
             this.state.isConnecting = false;
         }
+    }
+    
+    showUserForm() {
+        if (!window.UserForm) {
+            this.log('UserForm not available', true);
+            return;
+        }
+        
+        const userForm = new window.UserForm();
+        userForm.onSubmit((formData) => {
+            this.log('User form submitted:', false, formData);
+            
+            // Store user data
+            this.userData = formData;
+            
+            // Send user data to backend
+            this.sendUserInfo();
+            
+            // Update UI
+            if (window.uiController) {
+                window.uiController.updateStatusBanner(`Connected as ${formData.name}. Click Play to start conversation.`, 'connected');
+                window.uiController.updateInteractionButton('ready_to_play');
+            }
+        });
+        userForm.show();
     }
 
     disconnect(reason = 'User disconnected') {
@@ -285,6 +330,31 @@ class GeminiTelegramClient {
         }
     }
 
+    // Add this method to handle Play button
+    handlePlayButtonPress() {
+        if (!this.state.isConnectedToWebSocket) {
+            this.log('Cannot start: not connected to WebSocket', true);
+            return;
+        }
+        
+        if (!this.userData) {
+            this.log('Cannot start: no user data available', true);
+            if (window.uiController) {
+                window.uiController.updateStatusBanner('Please fill out the form first', 'error');
+            }
+            return;
+        }
+        
+        // Send user data and connect to Gemini
+        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+            this.state.ws.send(JSON.stringify({ 
+                type: 'connect_gemini_with_user_data', 
+                timestamp: Date.now() 
+            }));
+            this.log('Sent connect_gemini_with_user_data message');
+        }
+    }
+    
     async connectToWebSocket() {
         if (this.state.connectionAttempts >= this.state.maxConnectionAttempts && this.state.maxConnectionAttempts > 0) {
             if (window.uiController) window.uiController.setConnectionState('error');
@@ -424,9 +494,63 @@ class GeminiTelegramClient {
     
     handleSessionInitialized() {
         this.log('Backend confirmed session initialized.');
+        
+        // Send websocket_ready message instead of connect_gemini
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ type: 'connect_gemini' }));
-            this.log('Sent connect_gemini message to backend');
+            this.state.ws.send(JSON.stringify({ type: 'websocket_ready' }));
+            this.log('Sent websocket_ready message to backend');
+            
+            // Update UI to show form or ready state
+            if (window.uiController) {
+                if (this.userData) {
+                    window.uiController.updateStatusBanner(`Connected as ${this.userData.name}. Click Play to start conversation.`, 'connected');
+                    window.uiController.setConnectionState('connected');
+                } else {
+                    window.uiController.updateStatusBanner('Please fill out the form to continue.', 'info');
+                }
+            }
+        }
+    }
+    
+    // Send user information to backend
+    sendUserInfo() {
+        if (!this.userData) {
+            this.log('No user data to send');
+            return false;
+        }
+        
+        if (!this.state.isConnectedToWebSocket) {
+            this.log('Cannot send user info: not connected to WebSocket');
+            return false;
+        }
+        
+        this.log('Sending user info to backend:', false, this.userData);
+        
+        // Send user info to backend
+        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+            try {
+                const message = { 
+                    type: 'user_info_update', 
+                    userData: this.userData, 
+                    timestamp: Date.now() 
+                };
+                
+                this.log('Sending WebSocket message:', false, message);
+                
+                this.state.ws.send(JSON.stringify(message));
+                
+                this.log('User info sent to backend');
+                return true;
+            } catch (error) {
+                this.log('Error sending user info:', true, error);
+                return false;
+            }
+        } else {
+            this.log('WebSocket not ready for sending user info', false, {
+                wsExists: !!this.state.ws,
+                readyState: this.state.ws ? this.state.ws.readyState : 'N/A'
+            });
+            return false;
         }
     }
     
@@ -434,41 +558,6 @@ class GeminiTelegramClient {
         this.log('Backend confirmed Gemini connected successfully');
         this.state.isGeminiSessionActive = true;
         this.state.isConversationPaused = true; 
-        
-        // Send user information to backend if available
-        if (this.userData) {
-            this.log('Sending user information to backend');
-            
-            // Add debug message to UI
-            if (window.uiController) {
-                window.uiController.addMessage(`[DEBUG] Attempting to send user info to backend: ${JSON.stringify(this.userData)}`, 'system');
-            }
-            
-            // Check if sendUserInfo method exists
-            if (typeof this.sendUserInfo === 'function') {
-                try {
-                    const result = this.sendUserInfo();
-                    if (window.uiController) {
-                        window.uiController.addMessage(`[DEBUG] sendUserInfo result: ${result}`, 'system');
-                    }
-                } catch (error) {
-                    this.log('Error calling sendUserInfo', { error: error.message }, true);
-                    if (window.uiController) {
-                        window.uiController.addMessage(`[DEBUG] Error calling sendUserInfo: ${error.message}`, 'system');
-                    }
-                }
-            } else {
-                this.log('sendUserInfo method not found', null, true);
-                if (window.uiController) {
-                    window.uiController.addMessage('[DEBUG] sendUserInfo method not found', 'system');
-                }
-            }
-        } else {
-            this.log('No user data available to send');
-            if (window.uiController) {
-                window.uiController.addMessage('[DEBUG] No user data available to send', 'system');
-            }
-        }
         
         if (window.uiController) {
             window.uiController.setConnectionState('connected');

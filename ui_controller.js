@@ -161,15 +161,32 @@ class UIController {
         }
     }
 
-    // Voice session handling
+    // Voice session handling with form data integration
     handleInteractionToggle() {
-        if (!this.state.isConnected) {
-            this.debugLog('Interaction button clicked but not connected');
-            this.updateStatusBanner('Connect first to use voice chat', 'error');
+        if (!window.geminiClient) {
+            this.debugLog('No geminiClient available', true);
+            this.updateStatusBanner('Client not initialized', 'error');
             return;
         }
         
-        if (window.geminiClient) {
+        // Check if we need to connect to Gemini with user data first
+        if (window.geminiClient.state && window.geminiClient.state.isConnectedToWebSocket && 
+            !window.geminiClient.state.isGeminiSessionActive) {
+            
+            this.debugLog('Play button clicked - connecting to Gemini with user data');
+            
+            // Use the new handlePlayButtonPress method
+            if (typeof window.geminiClient.handlePlayButtonPress === 'function') {
+                window.geminiClient.handlePlayButtonPress();
+                this.updateStatusBanner('Connecting to Gemini...', 'connecting');
+            } else {
+                this.debugLog('handlePlayButtonPress method not available', true);
+            }
+            return;
+        }
+        
+        // Normal voice session toggle when already connected to Gemini
+        if (this.state.isConnected) {
             if (typeof window.geminiClient.toggleVoiceSession === 'function') {
                 const voiceActive = window.geminiClient.toggleVoiceSession();
                 this.debugLog(`Voice session toggled: ${voiceActive ? 'active' : 'paused'}`);
@@ -181,6 +198,9 @@ class UIController {
                     window.geminiClient.pauseConversation();
                 }
             }
+        } else {
+            this.debugLog('Interaction button clicked but not connected');
+            this.updateStatusBanner('Connect first to use voice chat', 'error');
         }
     }
 
