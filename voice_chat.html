@@ -3,256 +3,311 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Konverter.ai Voice</title>
+    <title>Konverter.ai Voice Assistant</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Updated Styles -->
+    <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-    <div class="app-container">
-        <header class="header">
-            <img src="data:image/png;base64,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" alt="Konverter.ai Logo" class="header-logo">
-            <div class="header-nav">
-                <a href="index.html" class="nav-button" title="Switch to Text Chat / Home">💬</a>
-                <button class="debug-button" id="debugBtn" title="Debug Info">🛠️</button>
-                <!-- iOS PoC button can be kept if still needed, or removed -->
-                <!-- <button class="debug-button" id="iosAudioPocButton" title="iOS Audio PoC">iOS PoC</button> -->
+    <!-- Voice Interface -->
+    <div class="voice-interaction" id="voiceInterface">
+        <div class="header">
+            <div class="konverter-logo">
+                <img src="./assets/konverter_logo_400_65.png" alt="Konverter.ai" class="logo-image">
             </div>
-        </header>
+            <h1 class="konverter-title">Speak to Chloe, our Investment Manager</h1>
+            
+            <!-- Control buttons -->
+            <button class="debug-button" id="debugBtn" onclick="showDebugInfo()" title="Debug Info">🛠️</button>
+        </div>
         
-        <div class="status-banner" id="status">Initializing...</div>
-
-        <main class="voice-interaction-area">
-            <div class="circles-container">
-                <div class="circle interaction-circle" id="userInteractionCircle">
-                    <div class="wave user-wave wave-1"></div>
-                    <div class="wave user-wave wave-2"></div>
-                    <div class="wave user-wave wave-3"></div>
-                    <div class="circle-icon" id="interactionIcon">▶️</div> <!-- Initial: Play/Start icon -->
-                </div>
-                
-                <div class="circle ai-visualizer-circle" id="aiCircle">
-                    <div class="wave ai-wave wave-1"></div>
-                    <div class="wave ai-wave wave-2"></div>
-                    <div class="wave ai-wave wave-3"></div>
-                    <div class="circle-icon">🤖</div>
+        <!-- Status Display -->
+        <div class="status" id="status">Voice mode ready</div>
+        
+        <!-- Circles container with exact positioning -->
+        <div class="circles-container">
+            <!-- Agent Circle (Left) - Chloe -->
+            <div class="circle agent-circle" id="agentCircle">
+                <div class="wave agent-wave wave-1"></div>
+                <div class="wave agent-wave wave-2"></div>
+                <div class="wave agent-wave wave-3"></div>
+                <div class="avatar-container">
+                    <img src="./assets/chloe_avatar.png" alt="Agent Avatar" class="agent-avatar">
                 </div>
             </div>
             
-            <div class="live-transcription-display">
-                <div class="transcription" id="inputTranscription"></div>
-                <div class="transcription" id="outputTranscription"></div>
-            </div>
-        </main>
-        
-        <div class="chat-widget" id="chatWidget">
-            <div class="chat-preview" id="chatPreview">
-                <span>💬 Tap to open chat</span>
-                <span class="unread-indicator" id="unreadIndicator" style="display:none;"></span>
-            </div>
-            <div class="transcription-panel" id="transcriptionPanel">
-                <div class="transcription-header">
-                    <div class="transcription-title">Conversation</div>
-                    <button class="transcription-close" id="closeTranscriptionPanelBtn">×</button>
-                </div>
-                <div class="conversation-log" id="conversationLog">
-                    <!-- Messages will be appended here -->
-                </div>
-                <div class="chat-input-area">
-                    <input type="text" id="chatTextInput" placeholder="Type a message...">
-                    <button id="sendTextButton" aria-label="Send message">➢</button>
+            <!-- Play Button Circle (Right) -->
+            <div class="circle play-circle" id="userInteractionCircle">
+                <div class="wave user-wave wave-1"></div>
+                <div class="wave user-wave wave-2"></div>
+                <div class="wave user-wave wave-3"></div>
+                <div class="play-button state-play" id="interactionIcon">
+                    <!-- Green triangle is now created with CSS -->
                 </div>
             </div>
         </div>
         
-        <footer class="bottom-bar">
-            <button class="connect-button" id="connectButton">Connect</button>
-        </footer>
+        <!-- Live Transcription -->
+        <div class="live-transcription">
+            <div class="transcription" id="inputTranscription"></div>
+            <div class="transcription" id="outputTranscription"></div>
+        </div>
         
-        <div class="loading-spinner" id="loadingSpinner"></div>
+        <!-- Recent Messages (3 most recent AI messages full-screen) -->
+        <div class="recent-messages" id="recentMessages">
+            <!-- Messages will be added here by JavaScript -->
+        </div>
+        
+        <!-- Chat Toggle Button - Smaller and positioned on right -->
+        <div class="chat-toggle" id="chatToggle" onclick="toggleChatPanel()">
+            <span class="chat-icon">💬</span> Chat
+        </div>
+        
+        <!-- Connect Button -->
+        <div class="connect-button-container">
+            <button class="connect-button" id="connectButton" onclick="handleConnect()">CONNECT</button>
+        </div>
     </div>
 
-    <!-- Permission guidance and Debug overlays remain the same as current HTML -->
-    <div class="permission-guidance" id="permissionGuidance">
-        <h2>Microphone Access Required</h2>
-        <p>To use voice chat, please allow microphone access when prompted.</p>
-        <div id="permissionInstructions"></div>
-        <button onclick="hidePermissionGuidance()">Got it</button>
+    <!-- Chat Panel (Hidden by default) -->
+    <div class="chat-panel" id="transcriptionPanel">
+        <div class="chat-header">
+            <h2>Conversation</h2>
+            <button class="close-button" id="closeTranscriptionPanelBtn" onclick="toggleChatPanel(false)">×</button>
+        </div>
+        <div class="chat-messages" id="conversationLog">
+            <!-- Messages will be added here by JavaScript -->
+        </div>
+        <div class="chat-input">
+            <input type="text" placeholder="Type a message..." id="chatTextInput" onkeypress="handleChatKeyPress(event)">
+            <button class="send-button" id="sendTextButton" onclick="sendTextMessage()">
+                <span>➤</span>
+            </button>
+        </div>
     </div>
 
+    <!-- Session info -->
+    <div class="session-info" id="sessionInfo">Session: Ready</div>
+
+    <!-- Debug overlay -->
     <div class="debug-overlay" id="debugOverlay">
         <div class="debug-content" id="debugContent"></div>
         <button class="debug-close" onclick="hideDebugInfo()">Close Debug</button>
     </div>
 
-    <!-- Load UI Controller - corrected to ui_controller.js -->
-    <script src="./ui_controller.js"></script> 
+    <!-- CORRECT ORDER - Load scripts in correct order -->
+    <script>
+        // 1. Core audio components (PRESERVE EXISTING)
+        const scripts = [
+            './pcm_stream_player.js',
+            './advanced_audio_recorder.js', 
+            './audio_processor_worklet.js',
+            
+            // 2. Original Gemini client
+            './gemini_telegram_client.js',
+            
+            // 3. UI controller
+            './ui_controller.js',
+            
+            // 4. Enhancement client
+            './gemini_telegram_client_enhancement.js'
+        ];
+        
+        // Load scripts sequentially
+        function loadScript(index) {
+            if (index >= scripts.length) {
+                initializeSystem();
+                return;
+            }
+            
+            const script = document.createElement('script');
+            script.src = scripts[index];
+            script.onload = () => loadScript(index + 1);
+            script.onerror = () => {
+                console.error(`Failed to load: ${scripts[index]}`);
+                loadScript(index + 1);
+            };
+            document.head.appendChild(script);
+        }
+        
+        loadScript(0);
+    </script>
     
-    <!-- Enhanced initialization script (mostly same as current, ensure it uses ui_controller.js) -->
-    <script type="text/javascript">
-        // Global debug system (same as your current script)
-        window.debugMessages = [];
-        window.globalError = null;
-        window.initializationStatus = 'starting';
-        window.globalPocAudioContext = null;
-
-        function debugLog(message, isError = false, data = null) {
-            const timestamp = new Date().toISOString();
-            const logEntry = { timestamp, message, isError, data, level: isError ? 'ERROR' : 'INFO' };
-            window.debugMessages.push(logEntry);
-            const consoleMessage = `${timestamp} [${logEntry.level}] ${message}`;
-            if (isError) console.error(consoleMessage, data || '');
-            else console.log(consoleMessage, data || '');
-            updateDebugOverlay();
-            if (isError) {
-                window.globalError = message;
-                updateStatusBanner(message, 'error');
-            }
-        }
-
-        function updateStatusBanner(message, type = '') { // Renamed from updateStatus
-            const statusEl = document.getElementById('status');
-            if (statusEl) {
-                statusEl.textContent = message;
-                statusEl.className = 'status-banner ' + type; // Ensure class matches new CSS
-            }
-        }
-
-        function showDebugInfo() {
-            updateDebugOverlay();
-            document.getElementById('debugOverlay').style.display = 'block';
-        }
-
-        function hideDebugInfo() {
-            document.getElementById('debugOverlay').style.display = 'none';
-        }
-
-        function updateDebugOverlay() { /* Same as your current script */
-            const debugContent = document.getElementById('debugContent');
-            if (!debugContent) return;
-            let html = `<h3>Debug Information</h3><p><strong>Init Status:</strong> ${window.initializationStatus}</p><p><strong>Global Error:</strong> ${window.globalError || 'None'}</p><p><strong>Msg Count:</strong> ${window.debugMessages.length}</p><p><strong>URL Params:</strong> ${window.location.search}</p><p><strong>User Agent:</strong> ${navigator.userAgent}</p><p><strong>Telegram:</strong> ${typeof window.Telegram !== 'undefined'}</p><hr><h4>Recent Messages:</h4>`;
-            const recentMessages = window.debugMessages.slice(-50);
-            recentMessages.forEach(entry => {
-                const color = entry.isError ? '#ff6b6b' : '#ffffff';
-                html += `<div style="color: ${color}; margin-bottom: 5px;"><strong>${entry.timestamp.split('T')[1].split('.')[0]}</strong> [${entry.level}] ${entry.message}${entry.data ? `<br><code style="font-size: 10px; opacity: 0.8;">${JSON.stringify(entry.data).substring(0, 200)}</code>` : ''}</div>`;
-            });
-            debugContent.innerHTML = html;
-        }
-        
-        function showCriticalError(message, details = null) { /* Same as your current script */
-            const container = document.querySelector('.app-container');
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'initialization-error';
-            errorDiv.innerHTML = `<h3>🚨 Critical Error</h3><p>${message}</p>${details ? `<p style="font-size: 12px; opacity: 0.8; margin-top: 10px;">${details}</p>` : ''}<button class="retry-button" onclick="window.location.reload()">Retry</button><button class="retry-button" onclick="showDebugInfo()" style="background: #333; margin-left: 10px;">Debug Info</button>`;
-            if (container) container.prepend(errorDiv); else document.body.prepend(errorDiv);
-        }
-
-        function showPermissionGuidance(platform = 'generic') { /* Same as your current script */
-            const instructionsDiv = document.getElementById('permissionInstructions');
-            let instructions = '';
-            if (platform === 'ios') instructions = `<p>On iOS:</p><ol><li>Tap "AA" in address bar</li><li>Select "Website Settings"</li><li>Enable "Microphone"</li><li>Tap "Done"</li></ol>`;
-            else instructions = `<p>When prompted:</p><ol><li>Click "Allow" for microphone access</li><li>If no prompt, check browser settings</li></ol>`;
-            if (instructionsDiv) instructionsDiv.innerHTML = instructions;
-            const guidanceEl = document.getElementById('permissionGuidance');
-            if (guidanceEl) guidanceEl.style.display = 'flex';
-        }
-        function hidePermissionGuidance() { /* Same as your current script */
-            const guidanceEl = document.getElementById('permissionGuidance');
-            if (guidanceEl) guidanceEl.style.display = 'none';
-        }
-        function showLoading(show = true) { /* Same as your current script */
-            const spinnerEl = document.getElementById('loadingSpinner');
-            if (spinnerEl) spinnerEl.style.display = show ? 'block' : 'none';
-        }
-        async function loadScript(src, timeout = 10000, type = 'text/javascript') { // Added 'type' parameter
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                const timeoutId = setTimeout(() => { script.remove(); reject(new Error(`Script loading timeout: ${src}`)); }, timeout);
-                script.onload = () => { clearTimeout(timeoutId); resolve(); };
-                script.onerror = (e) => { clearTimeout(timeoutId); script.remove(); reject(new Error(`Script loading failed: ${src}`)); };
-                script.src = `${src}?v=${Date.now()}`; 
-                script.type = type; // Use the provided type
-                document.head.appendChild(script);
-            });
-        }
-
-        async function initializeApp() {
-            try {
-                debugLog('Starting app initialization (New UI)');
-                window.initializationStatus = 'loading_scripts';
-                showLoading(true);
-                
-                if (typeof window.Telegram === 'undefined') {
-                    debugLog('Warning: Not running in Telegram WebApp context');
+    <script>
+        function initializeSystem() {
+            console.log('[INIT] Starting system initialization...');
+            
+            // 1. Extract session token from URL (PRESERVE EXISTING LOGIC)
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionToken = urlParams.get('session');
+            
+            if (!sessionToken) {
+                console.error('[INIT] No session token found in URL');
+                if (window.uiController) {
+                    window.uiController.updateStatusBanner('Invalid session. Please restart from Telegram.', 'error');
                 }
-
-                debugLog('Loading TelegramAudioBridge...');
-                updateStatusBanner('Loading audio components...');
-                await loadScript('./telegram_audio_bridge_v3.js', 15000);
-                if (typeof TelegramAudioBridge === 'undefined') throw new Error('TelegramAudioBridge not defined');
-
-                // UIController is already loaded via its own <script> tag and self-initializes.
-                // We just need to ensure it's available on window.uiController.
-                debugLog('Checking for UIController...');
-                updateStatusBanner('Loading UI components...');
-                if (typeof window.uiController === 'undefined' || typeof UIController === 'undefined') { // Check both class and instance
-                    // This might happen if the script tag for ui_controller.js failed or was removed.
-                    // For robustness, we could try loading it here if not found, but ideally, the script tag handles it.
-                    debugLog('UIController not found on window, attempting dynamic load (fallback)...');
-                    await loadScript('./ui_controller.js', 15000); 
-                    if (typeof UIController === 'undefined') throw new Error('UIController still not defined after dynamic load attempt');
-                    if (!window.uiController) window.uiController = new UIController(); // Ensure instance if loaded dynamically
+                return;
+            }
+            
+            // 2. Initialize Telegram WebApp (PRESERVE EXISTING)
+            if (window.Telegram && window.Telegram.WebApp) {
+                try {
+                    Telegram.WebApp.ready();
+                    Telegram.WebApp.expand();
+                    console.log('[INIT] Telegram WebApp initialized');
+                } catch (error) {
+                    console.error('[INIT] Telegram WebApp error:', error);
+                }
+            }
+            
+            // 3. Initialize UI Controller (NEW)
+            if (!window.uiController && window.UIController) {
+                window.uiController = new window.UIController();
+                console.log('[INIT] UI Controller initialized');
+            }
+            
+            // 4. Initialize original Gemini client (PRESERVE EXISTING PATTERN)
+            setTimeout(() => {
+                if (!window.geminiClient && window.GeminiTelegramClient) {
+                    console.log('[INIT] Initializing original GeminiTelegramClient...');
+                    window.geminiClient = new window.GeminiTelegramClient();
+                    
+                    // 5. Apply enhancements after original client is ready
+                    if (window.enhanceGeminiClient) {
+                        window.enhanceGeminiClient(window.geminiClient);
+                        console.log('[INIT] Client enhancements applied');
+                    }
+                    
+                    console.log('[INIT] System initialization complete');
                 } else {
-                    debugLog('UIController already available.');
+                    console.error('[INIT] GeminiTelegramClient not available');
                 }
-                
-                debugLog('Loading GeminiTelegramClient...');
-                updateStatusBanner('Loading client components...');
-                // Load gemini_telegram_client.js as a module, with explicit ./ prefix
-                await loadScript('./gemini_telegram_client.js', 15000, 'module'); 
-                if (typeof window.GeminiTelegramClient === 'undefined') throw new Error('GeminiTelegramClient not defined on window');
-
-                debugLog('Creating GeminiTelegramClient instance...');
-                updateStatusBanner('Initializing client...');
-                const clientOptions = {};
-                if (window.globalPocAudioContext && window.globalPocAudioContext.state === 'running') {
-                    clientOptions.audioContext = window.globalPocAudioContext;
+            }, 500);
+        }
+        
+        // Global functions for onclick handlers
+        function toggleChatPanel(force) {
+            try {
+                if (window.uiController) {
+                    window.uiController.toggleChatWidget(force);
+                } else {
+                    console.warn('[Global] uiController not ready yet');
+                    // Retry after a short delay
+                    setTimeout(() => toggleChatPanel(force), 100);
                 }
-                window.geminiClient = new GeminiTelegramClient(clientOptions);
-                
-                window.initializationStatus = 'ready';
-                debugLog('App initialization completed successfully (New UI)');
-                updateStatusBanner('Ready to connect', 'success');
-                showLoading(false);
-                
             } catch (error) {
-                window.initializationStatus = 'failed';
-                debugLog('App initialization failed (New UI)', true, error.message);
-                showCriticalError('Failed to initialize the voice chat application', error.message);
-                showLoading(false);
+                console.error('[Global] Error toggling chat panel:', error);
             }
         }
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeApp);
-        } else {
-            initializeApp();
-        }
-
-        window.addEventListener('error', (e) => debugLog('Global error', true, { message: e.message, filename: e.filename, lineno: e.lineno, colno: e.colno, stack: e.error?.stack }));
-        window.addEventListener('unhandledrejection', (e) => debugLog('Unhandled promise rejection', true, { reason: e.reason, stack: e.reason?.stack }));
         
-        window.debugLog = debugLog;
-        window.showDebugInfo = showDebugInfo;
-        window.hideDebugInfo = hideDebugInfo;
-        window.showPermissionGuidance = showPermissionGuidance;
-        window.hidePermissionGuidance = hidePermissionGuidance;
-        debugLog('Debug system initialized (New UI)');
-
-        // iOS PoC button logic can be removed if not needed for the new design, or kept if still relevant for testing.
-        // For brevity, I'm omitting it here but it can be re-added from your original script if required.
+        function handleConnect() {
+            try {
+                if (window.geminiClient) {
+                    if (window.geminiClient.isConnected && window.geminiClient.isConnected()) {
+                        window.geminiClient.disconnect();
+                    } else {
+                        window.geminiClient.connect();
+                    }
+                } else {
+                    console.warn('[Global] geminiClient not ready yet');
+                    if (window.uiController) {
+                        window.uiController.updateStatusBanner('Client not ready. Please wait...', 'error');
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error handling connect:', error);
+                if (window.uiController) {
+                    window.uiController.updateStatusBanner('Connection error. Please refresh.', 'error');
+                }
+            }
+        }
+        
+        function sendTextMessage() {
+            try {
+                const textInput = document.getElementById('chatTextInput');
+                if (textInput && textInput.value.trim()) {
+                    if (window.geminiClient && window.geminiClient.sendTextMessage) {
+                        if (window.geminiClient.sendTextMessage(textInput.value.trim())) {
+                            textInput.value = '';
+                        }
+                    } else {
+                        console.warn('[Global] Text messaging not available');
+                        if (window.uiController) {
+                            window.uiController.updateStatusBanner('Text messaging not ready', 'error');
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error sending text message:', error);
+            }
+        }
+        
+        function handleChatKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendTextMessage();
+            }
+        }
+        
+        function showDebugInfo() {
+            try {
+                if (window.uiController && window.uiController.showDebugInfo) {
+                    window.uiController.showDebugInfo();
+                } else {
+                    // Fallback debug display
+                    const debugOverlay = document.getElementById('debugOverlay');
+                    const debugContent = document.getElementById('debugContent');
+                    if (debugOverlay && debugContent) {
+                        let html = '<h3>Basic Debug Info</h3>';
+                        html += `<p><strong>UI Controller:</strong> ${!!window.uiController}</p>`;
+                        html += `<p><strong>Gemini Client:</strong> ${!!window.geminiClient}</p>`;
+                        html += `<p><strong>URL:</strong> ${window.location.href}</p>`;
+                        html += `<p><strong>Time:</strong> ${new Date().toISOString()}</p>`;
+                        debugContent.innerHTML = html;
+                        debugOverlay.style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error showing debug info:', error);
+            }
+        }
+        
+        function hideDebugInfo() {
+            try {
+                if (window.uiController && window.uiController.hideDebugInfo) {
+                    window.uiController.hideDebugInfo();
+                } else {
+                    const debugOverlay = document.getElementById('debugOverlay');
+                    if (debugOverlay) {
+                        debugOverlay.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error hiding debug info:', error);
+            }
+        }
+        
+        // Error handling for uncaught errors
+        window.addEventListener('error', function(event) {
+            console.error('[GLOBAL] Uncaught error:', event.error);
+            if (window.uiController) {
+                window.uiController.debugLog(`Uncaught error: ${event.error.message}`, true);
+            }
+        });
+        
+        // Unhandled promise rejection handling
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('[GLOBAL] Unhandled promise rejection:', event.reason);
+            if (window.uiController) {
+                window.uiController.debugLog(`Unhandled rejection: ${event.reason}`, true);
+            }
+        });
+        
+        console.log('[GLOBAL] Voice chat interface loaded');
     </script>
 </body>
 </html>

@@ -659,4 +659,3 @@ class GeminiTelegramClient {
 if (typeof window !== 'undefined') {
     window.GeminiTelegramClient = GeminiTelegramClient;
 }
-

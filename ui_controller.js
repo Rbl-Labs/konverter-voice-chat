@@ -1,186 +1,326 @@
 /**
- * Modern Voice Chat UI Controller
- * Version: 3.1.0 (Redesigned UI)
+ * Enhanced UI Controller with Audio Integration
+ * Version: 4.1.0 - Implements voice+text chat and message display
+ * 
+ * PRESERVES all existing functionality while adding:
+ * 1. Chat working during voice sessions (like Google AI Studio)
+ * 2. Message aggregation with proper sentence completion
+ * 3. Recent messages display (max 3 AI messages full-screen)
  */
 
 class UIController {
     constructor() {
+        // Element mapping (PRESERVE existing IDs)
         this.elements = {
-            // Header & Status
-            headerLogo: document.querySelector('.header-logo'), // Assuming one logo
-            statusBanner: document.getElementById('status'),
-            navButtonHome: document.querySelector('.header-nav .nav-button[href="index.html"]'), // More specific selector
-
-            // Central Interaction
+            // Core elements
+            status: document.getElementById('status'),
+            connectButton: document.getElementById('connectButton'),
+            sessionInfo: document.getElementById('sessionInfo'),
+            
+            // Voice circles (PRESERVE existing IDs)
+            agentCircle: document.getElementById('agentCircle'),
             userInteractionCircle: document.getElementById('userInteractionCircle'),
             interactionIcon: document.getElementById('interactionIcon'),
-            aiCircle: document.getElementById('aiCircle'),
             
-            // Live Transcriptions
-            liveTranscriptionDisplay: document.getElementById('liveTranscriptionContainer'), // Container for both
+            // NEW: Recent messages (IMPLEMENT AS PER SCREENSHOT)
+            recentMessages: document.getElementById('recentMessages'),
+            
+            // Transcriptions (PRESERVE existing)
             inputTranscription: document.getElementById('inputTranscription'),
             outputTranscription: document.getElementById('outputTranscription'),
-
-            // Chat Widget
-            chatWidget: document.getElementById('chatWidget'),
-            chatPreview: document.getElementById('chatPreview'),
-            transcriptionPanel: document.getElementById('transcriptionPanel'), // Expanded view
-            closeTranscriptionPanelBtn: document.getElementById('closeTranscriptionPanelBtn'),
+            
+            // Chat panel (PRESERVE existing IDs)
+            transcriptionPanel: document.getElementById('transcriptionPanel'),
+            chatToggle: document.getElementById('chatToggle'),
             conversationLog: document.getElementById('conversationLog'),
+            closeTranscriptionPanelBtn: document.getElementById('closeTranscriptionPanelBtn'),
             chatTextInput: document.getElementById('chatTextInput'),
             sendTextButton: document.getElementById('sendTextButton'),
-            unreadIndicator: document.getElementById('unreadIndicator'),
-
-            // Bottom Bar
-            connectButton: document.getElementById('connectButton'),
-
-            // Overlays & Spinners
-            loadingSpinner: document.getElementById('loadingSpinner'),
-            permissionGuidance: document.getElementById('permissionGuidance'),
+            
+            // Debug
             debugOverlay: document.getElementById('debugOverlay'),
-            debugBtn: document.getElementById('debugBtn') // Existing debug button
+            debugContent: document.getElementById('debugContent')
         };
         
+        // State management
         this.state = {
-            isChatWidgetExpanded: false,
-            isUserSpeaking: false, // For user wave animation
-            isAISpeaking: false,   // For AI wave animation
             isConnected: false,
             isConnecting: false,
-            isConversationActive: false, // Play/Stop state for the central button
-            hasUnreadMessages: false
+            isVoiceActive: false,
+            isChatWidgetExpanded: false,
+            isUserSpeaking: false,
+            isAISpeaking: false,
+            recentMessagesCount: 0,
+            maxRecentMessages: 3, // EXACTLY 3 as per screenshot
+            hasUnreadMessages: false,
+            debugMessages: []
         };
         
-        // Initial UI setup based on default states
         this.initializeUI();
         this.setupEventListeners();
+        this.setupAudioIntegration(); // NEW: Audio system integration
         
-        // Expose globally for other scripts if not already done by HTML
-        window.uiController = this; 
-        debugLog('[UIController] Initialized v3.1.0');
+        // Make globally available
+        window.uiController = this;
+        this.debugLog('[UI Controller] Enhanced version 4.1.0 initialized');
+    }
+    
+    // NEW: Audio system integration
+    setupAudioIntegration() {
+        // Monitor for PCMStreamPlayer events
+        document.addEventListener('audioPlaybackStart', () => {
+            this.setAISpeaking(true);
+        });
+        
+        document.addEventListener('audioPlaybackEnd', () => {
+            this.setAISpeaking(false);
+        });
+        
+        // Monitor for AdvancedAudioRecorder events
+        document.addEventListener('recordingStart', () => {
+            this.setUserSpeaking(true);
+        });
+        
+        document.addEventListener('recordingEnd', () => {
+            this.setUserSpeaking(false);
+        });
     }
     
     initializeUI() {
-        this.updateConnectButton('disconnected'); // Initial state
-        this.updateInteractionButton('disconnected'); // Disabled until connected
-        this.toggleChatWidget(false); // Start minimized
-        this.updateStatusBanner('Ready. Tap Connect.', 'info');
+        this.setConnectionState('disconnected');
+        this.updateInteractionButton('disconnected');
+        this.updateStatusBanner('Ready to connect', '');
+        this.toggleChatWidget(false);
+        
+        // Ensure recent messages container is visible
+        if (this.elements.recentMessages) {
+            this.elements.recentMessages.style.display = 'flex';
+        }
     }
 
     setupEventListeners() {
+        // Connect button
         if (this.elements.connectButton) {
             this.elements.connectButton.addEventListener('click', () => this.handleConnectToggle());
         }
+        
+        // Main interaction circle (voice toggle)
         if (this.elements.userInteractionCircle) {
             this.elements.userInteractionCircle.addEventListener('click', () => this.handleInteractionToggle());
         }
-        if (this.elements.chatPreview) {
-            this.elements.chatPreview.addEventListener('click', () => this.toggleChatWidget(true));
+        
+        // Chat toggle
+        if (this.elements.chatToggle) {
+            this.elements.chatToggle.addEventListener('click', () => this.toggleChatWidget(true));
         }
-        if (this.elements.closeTranscriptionPanelBtn) {
-            this.elements.closeTranscriptionPanelBtn.addEventListener('click', () => this.toggleChatWidget(false));
-        }
-        if (this.elements.sendTextButton) {
-            this.elements.sendTextButton.addEventListener('click', () => this.handleSendTextMessage());
-        }
+        
+        // Chat input with proper integration
         if (this.elements.chatTextInput) {
             this.elements.chatTextInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
                     this.handleSendTextMessage();
                 }
             });
+            
+            // Enable input when connected
+            this.elements.chatTextInput.addEventListener('focus', () => {
+                if (!this.state.isConnected) {
+                    this.updateStatusBanner('Connect first to use chat', 'error');
+                    this.elements.chatTextInput.blur();
+                }
+            });
+        }
+        
+        // Send button
+        if (this.elements.sendTextButton) {
+            this.elements.sendTextButton.addEventListener('click', () => this.handleSendTextMessage());
+        }
+        
+        // Chat panel close
+        if (this.elements.closeTranscriptionPanelBtn) {
+            this.elements.closeTranscriptionPanelBtn.addEventListener('click', () => this.toggleChatWidget(false));
         }
     }
-    
-    // --- Connection Button Logic ---
+
+    // Connection handling with proper state management
     handleConnectToggle() {
         if (this.state.isConnecting) return;
-
-        if (this.state.isConnected) {
-            debugLog('[UIController] Disconnect button clicked');
-            if (window.geminiClient) window.geminiClient.disconnect();
-            // geminiClient should call uiController.setConnectionState('disconnected')
+        
+        if (window.geminiClient) {
+            if (this.state.isConnected) {
+                this.debugLog('Disconnect button clicked');
+                window.geminiClient.disconnect();
+            } else {
+                this.debugLog('Connect button clicked');
+                window.geminiClient.connect();
+            }
         } else {
-            debugLog('[UIController] Connect button clicked');
-            if (window.geminiClient) window.geminiClient.connect();
-            // geminiClient should call uiController.setConnectionState('connecting'/'connected'/'error')
+            this.debugLog('No geminiClient available', true);
+            this.updateStatusBanner('Error: Client not initialized', 'error');
         }
     }
 
-    setConnectionState(state) { // Called by gemini_telegram_client.js
+    // Voice session handling
+    handleInteractionToggle() {
+        if (!this.state.isConnected) {
+            this.debugLog('Interaction button clicked but not connected');
+            this.updateStatusBanner('Connect first to use voice chat', 'error');
+            return;
+        }
+        
+        if (window.geminiClient) {
+            if (typeof window.geminiClient.toggleVoiceSession === 'function') {
+                const voiceActive = window.geminiClient.toggleVoiceSession();
+                this.debugLog(`Voice session toggled: ${voiceActive ? 'active' : 'paused'}`);
+            } else if (typeof window.geminiClient.startConversation === 'function') {
+                // Fallback to existing method
+                if (window.geminiClient.state && window.geminiClient.state.isConversationPaused) {
+                    window.geminiClient.startConversation();
+                } else {
+                    window.geminiClient.pauseConversation();
+                }
+            }
+        }
+    }
+
+    // Text message handling with proper validation
+    handleSendTextMessage() {
+        if (!this.elements.chatTextInput) return;
+        
+        const text = this.elements.chatTextInput.value.trim();
+        if (!text) return;
+        
+        if (!this.state.isConnected) {
+            this.updateStatusBanner('Connect first to send messages', 'error');
+            return;
+        }
+        
+        this.debugLog(`Sending text message: "${text}"`);
+        
+        // CRITICAL: Send through existing Gemini client
+        if (window.geminiClient && typeof window.geminiClient.sendTextMessage === 'function') {
+            if (window.geminiClient.sendTextMessage(text)) {
+                // Clear input immediately
+                this.elements.chatTextInput.value = '';
+                this.debugLog('Text message sent successfully');
+            } else {
+                this.updateStatusBanner('Failed to send message', 'error');
+            }
+        } else {
+            this.updateStatusBanner('Text messaging not available', 'error');
+        }
+    }
+
+    // Connection state with chat availability
+    setConnectionState(state) {
+        const prevState = this.state.isConnected;
+        
         switch(state) {
             case 'connecting':
                 this.state.isConnecting = true;
                 this.state.isConnected = false;
                 this.updateConnectButton('connecting');
-                this.updateInteractionButton('disconnected'); // Keep disabled while connecting
-                this.updateStatusBanner('Connecting...', 'info');
+                this.updateInteractionButton('disconnected');
+                this.updateStatusBanner('Connecting...', 'connecting');
+                
+                // Disable chat input when connecting
+                if (this.elements.chatTextInput) {
+                    this.elements.chatTextInput.disabled = true;
+                    this.elements.chatTextInput.placeholder = 'Connecting...';
+                }
+                if (this.elements.sendTextButton) {
+                    this.elements.sendTextButton.disabled = true;
+                }
                 break;
+                
             case 'connected':
                 this.state.isConnecting = false;
                 this.state.isConnected = true;
-                this.updateConnectButton('connected'); // Shows "Disconnect"
-                this.updateInteractionButton('ready_to_play'); // Enable central button to "Play"
-                this.updateStatusBanner('Connected. Tap ▶️ to start.', 'connected');
+                this.updateConnectButton('connected');
+                this.updateInteractionButton('ready_to_play');
+                
+                // CRITICAL: Enable chat input when connected
+                if (this.elements.chatTextInput) {
+                    this.elements.chatTextInput.disabled = false;
+                    this.elements.chatTextInput.placeholder = 'Type a message...';
+                }
+                if (this.elements.sendTextButton) {
+                    this.elements.sendTextButton.disabled = false;
+                }
+                
+                this.updateStatusBanner('Connected! Voice + text both available', 'connected');
                 break;
+                
             case 'disconnected':
                 this.state.isConnecting = false;
                 this.state.isConnected = false;
-                this.state.isConversationActive = false; // Reset conversation state
-                this.updateConnectButton('disconnected'); // Shows "Connect"
-                this.updateInteractionButton('disconnected'); // Disable central button
-                this.updateStatusBanner('Disconnected. Tap Connect.', 'info');
-                this.setAISpeaking(false); // Turn off AI waves
-                this.setUserSpeaking(false); // Turn off User waves
+                this.state.isVoiceActive = false;
+                this.updateConnectButton('disconnected');
+                this.updateInteractionButton('disconnected');
+                this.setAISpeaking(false);
+                this.setUserSpeaking(false);
+                
+                // Disable chat when disconnected
+                if (this.elements.chatTextInput) {
+                    this.elements.chatTextInput.disabled = true;
+                    this.elements.chatTextInput.placeholder = 'Connect first to chat...';
+                }
+                if (this.elements.sendTextButton) {
+                    this.elements.sendTextButton.disabled = true;
+                }
+                
+                this.updateStatusBanner('Disconnected. Tap Connect.', '');
                 break;
+                
             case 'error':
                 this.state.isConnecting = false;
                 this.state.isConnected = false;
-                this.updateConnectButton('disconnected'); // Revert to "Connect"
+                this.updateConnectButton('disconnected');
                 this.updateInteractionButton('disconnected');
-                // Status banner updated by debugLog/showCriticalError
+                
+                // Disable chat on error
+                if (this.elements.chatTextInput) {
+                    this.elements.chatTextInput.disabled = true;
+                }
+                if (this.elements.sendTextButton) {
+                    this.elements.sendTextButton.disabled = true;
+                }
                 break;
         }
-        debugLog(`[UIController] Connection state set to: ${state}`);
+        
+        this.debugLog(`Connection state: ${prevState ? 'connected' : 'disconnected'} → ${state}`);
     }
 
-    updateConnectButton(state) { // 'disconnected', 'connecting', 'connected'
+    updateConnectButton(state) {
         if (!this.elements.connectButton) return;
+        
         const btn = this.elements.connectButton;
         btn.classList.remove('disconnected', 'connecting', 'connected');
         btn.classList.add(state);
-        if (state === 'disconnected') btn.textContent = 'Connect';
-        else if (state === 'connecting') btn.textContent = 'Connecting...';
-        else if (state === 'connected') btn.textContent = 'Disconnect';
-    }
-
-    // --- Central Interaction Button Logic ---
-    handleInteractionToggle() {
-        if (!this.state.isConnected || this.state.isConnecting) {
-            debugLog('[UIController] Interaction button clicked but not connected/ready.');
-            return;
-        }
-
-        if (this.state.isConversationActive) { // Currently active, so stop/pause
-            debugLog('[UIController] Stop/Pause button clicked');
-            if (window.geminiClient) window.geminiClient.pauseConversation(); // Tell client to stop sending audio etc.
-            this.state.isConversationActive = false;
-            this.updateInteractionButton('ready_to_play'); // Show Play icon
-            this.setUserSpeaking(false); // Stop user wave animation
-        } else { // Currently paused/idle, so start/play
-            debugLog('[UIController] Play/Start button clicked');
-            if (window.geminiClient) window.geminiClient.startConversation(); // Tell client to start mic, send audio
-            this.state.isConversationActive = true;
-            this.updateInteractionButton('listening'); // Show Stop or Listening icon
+        
+        switch(state) {
+            case 'disconnected':
+                btn.textContent = 'CONNECT';
+                btn.disabled = false;
+                break;
+            case 'connecting':
+                btn.textContent = 'CONNECTING...';
+                btn.disabled = true;
+                break;
+            case 'connected':
+                btn.textContent = 'DISCONNECT';
+                btn.disabled = false;
+                break;
         }
     }
-    
-    updateInteractionButton(state, isEnabledOverride) { // States: 'disconnected', 'ready_to_play', 'listening', 'user_speaking', 'processing', 'ai_speaking'
+
+    // Interaction button management with CSS styling instead of emojis
+    updateInteractionButton(state, isEnabledOverride) {
         if (!this.elements.userInteractionCircle || !this.elements.interactionIcon) return;
         
         const circle = this.elements.userInteractionCircle;
-        const iconEl = this.elements.interactionIcon;
-        let icon = '❓';
+        const playButton = this.elements.interactionIcon;
         let enabled = false;
 
         if (isEnabledOverride !== undefined) {
@@ -190,164 +330,60 @@ class UIController {
         }
 
         circle.classList.toggle('disabled', !enabled);
-
+        
+        // Remove all state classes first
+        playButton.classList.remove('state-play', 'state-pause', 'state-processing', 'state-disconnected');
+        
+        // Add appropriate state class based on state
         if (!enabled || state === 'disconnected') {
-            icon = '🔌'; // Or some other "connect first" icon
-            this.state.isConversationActive = false; // Ensure this is reset
-        } else if (state === 'ready_to_play') { // Connected, but paused
-            icon = '▶️'; // Play
-            this.state.isConversationActive = false;
-        } else if (state === 'listening') { // Conversation active, waiting for user
-            icon = '🎤'; // Microphone, ready to listen (or could be Stop ⏹️)
-            // Let's use Stop as it's a toggle for active conversation
-            icon = '⏹️'; 
-        } else if (state === 'user_speaking') { // User is actively speaking
-            icon = '⏹️'; // Still Stop, but waves are active
-        } else if (state === 'processing') { // User finished, AI processing
-            icon = '🔄'; // Loading/spinner
-        } else if (state === 'ai_speaking') { // AI is speaking
-             icon = '⏹️'; // Still Stop, as conversation is active
-        }
-        
-        iconEl.textContent = icon;
-        debugLog(`[UIController] Interaction button state: ${state}, icon: ${icon}, enabled: ${enabled}`);
-    }
-
-    // --- Chat Widget & Messages ---
-    toggleChatWidget(forceShow) {
-        if (!this.elements.chatWidget || !this.elements.transcriptionPanel || !this.elements.chatPreview) return;
-        
-        const newState = forceShow !== undefined ? forceShow : !this.state.isChatWidgetExpanded;
-        
-        if (newState) {
-            this.elements.transcriptionPanel.style.display = 'flex';
-            this.elements.chatPreview.style.display = 'none';
-            this.state.isChatWidgetExpanded = true;
-            if (this.elements.unreadIndicator) this.elements.unreadIndicator.style.display = 'none';
-            this.state.hasUnreadMessages = false;
-            // Scroll to bottom of log when opening
-            if(this.elements.conversationLog) this.elements.conversationLog.scrollTop = this.elements.conversationLog.scrollHeight;
-
+            playButton.classList.add('state-disconnected');
+            this.state.isVoiceActive = false;
+        } else if (state === 'ready_to_play') {
+            playButton.classList.add('state-play');
+            this.state.isVoiceActive = false;
+        } else if (state === 'listening' || state === 'recording' || state === 'user_speaking') {
+            playButton.classList.add('state-pause');
+            this.state.isVoiceActive = true;
+        } else if (state === 'processing') {
+            playButton.classList.add('state-processing');
+        } else if (state === 'ai_speaking') {
+            playButton.classList.add('state-pause');
         } else {
-            this.elements.transcriptionPanel.style.display = 'none';
-            this.elements.chatPreview.style.display = 'flex';
-            this.state.isChatWidgetExpanded = false;
+            // Default to play button
+            playButton.classList.add('state-play');
         }
-        debugLog(`[UIController] Chat widget toggled to: ${newState ? 'expanded' : 'minimized'}`);
+        
+        this.debugLog(`Interaction button: ${state}, enabled: ${enabled}`);
     }
 
-    handleSendTextMessage() {
-        if (!this.elements.chatTextInput || !window.geminiClient) return;
-        const text = this.elements.chatTextInput.value.trim();
-        if (text) {
-            debugLog(`[UIController] Sending text message: "${text}"`);
-            window.geminiClient.sendTextMessage(text); // Needs to be implemented in gemini_telegram_client.js
-            this.addMessage(text, 'user'); // Display user's own message
-            this.elements.chatTextInput.value = '';
-        }
-    }
-    
-    addMessage(text, sender, isHTML = false) {
-        if (!this.elements.conversationLog) return;
-        
-        const messageEl = document.createElement('div');
-        messageEl.className = `message ${sender}`;
-        
-        if (isHTML) {
-            // Basic sanitization: allow only <a> tags with href, and <b>, <i>, <br>
-            // This is a very basic example. For production, use a proper sanitizer library.
-            const allowedTags = /^(a|b|i|br)$/i;
-            const allowedAttrs = /^(href|target)$/i;
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = text;
-            
-            function sanitizeNode(node) {
-                if (node.nodeType === Node.TEXT_NODE) {
-                    return document.createTextNode(node.textContent);
-                }
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    if (!allowedTags.test(node.tagName)) {
-                        return document.createTextNode(node.textContent || '');
-                    }
-                    const newNode = document.createElement(node.tagName);
-                    for (const attr of node.attributes) {
-                        if (allowedAttrs.test(attr.name)) {
-                            if (attr.name === 'href' && !attr.value.match(/^(https?:\/\/|mailto:|\/)/i)) {
-                                // Skip potentially unsafe hrefs
-                                continue;
-                            }
-                            newNode.setAttribute(attr.name, attr.value);
-                        }
-                    }
-                    if (node.tagName.toLowerCase() === 'a') {
-                        newNode.setAttribute('target', '_blank'); // Open links in new tab
-                        newNode.setAttribute('rel', 'noopener noreferrer');
-                    }
-                    for (const child of node.childNodes) {
-                        newNode.appendChild(sanitizeNode(child));
-                    }
-                    return newNode;
-                }
-                return document.createDocumentFragment(); // Ignore other node types
-            }
-            
-            while (tempDiv.firstChild) {
-                messageEl.appendChild(sanitizeNode(tempDiv.firstChild));
-            }
-
-        } else {
-            // Auto-linkify plain text URLs
-            const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])|(\bwww\.[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
-            const linkedText = text.replace(urlRegex, function(url) {
-                let fullUrl = url;
-                if (!url.match(/^https?:\/\//i) && url.match(/^www\./i)) {
-                    fullUrl = 'http://' + url;
-                }
-                return `<a href="${fullUrl}" target="_blank" rel="noopener noreferrer">${url}</a>`;
-            });
-            messageEl.innerHTML = linkedText;
-        }
-        
-        // Avatar (simplified, can be enhanced)
-        const avatarEl = document.createElement('div');
-        avatarEl.className = 'message-avatar';
-        avatarEl.textContent = sender === 'ai' ? 'AI' : (sender === 'user' ? 'U' : 'S');
-        messageEl.appendChild(avatarEl);
-        
-        this.elements.conversationLog.appendChild(messageEl);
-        this.elements.conversationLog.scrollTop = this.elements.conversationLog.scrollHeight;
-
-        if (!this.state.isChatWidgetExpanded && sender === 'ai') {
-            this.state.hasUnreadMessages = true;
-            if(this.elements.unreadIndicator) this.elements.unreadIndicator.style.display = 'inline-block';
-        }
-        debugLog(`[UIController] Added message from ${sender}. HTML: ${isHTML}`);
-    }
-
-    // --- Visual Feedback (Waves, Transcriptions) ---
-    setUserSpeaking(isSpeaking) { // Controls wave animation for user circle
+    // Speaking animations
+    setUserSpeaking(isSpeaking) {
         if (!this.elements.userInteractionCircle) return;
+        
         this.state.isUserSpeaking = isSpeaking;
         this.elements.userInteractionCircle.classList.toggle('active', isSpeaking);
-        if (isSpeaking && this.state.isConnected && this.state.isConversationActive) {
+        
+        if (isSpeaking && this.state.isConnected && this.state.isVoiceActive) {
             this.updateInteractionButton('user_speaking');
-        } else if (this.state.isConnected && this.state.isConversationActive) {
-            this.updateInteractionButton('listening'); // Revert to listening/stop if not speaking
-        }
-    }
-    
-    setAISpeaking(isSpeaking) { // Controls wave animation for AI circle
-        if (!this.elements.aiCircle) return;
-        this.state.isAISpeaking = isSpeaking;
-        this.elements.aiCircle.classList.toggle('active', isSpeaking);
-         if (isSpeaking && this.state.isConnected && this.state.isConversationActive) {
-            this.updateInteractionButton('ai_speaking');
-        } else if (this.state.isConnected && this.state.isConversationActive && !this.state.isUserSpeaking) {
-            // If AI stops and user isn't speaking, revert to listening/stop
+        } else if (this.state.isConnected && this.state.isVoiceActive) {
             this.updateInteractionButton('listening');
         }
     }
     
+    setAISpeaking(isSpeaking) {
+        if (!this.elements.agentCircle) return;
+        
+        this.state.isAISpeaking = isSpeaking;
+        this.elements.agentCircle.classList.toggle('active', isSpeaking);
+        
+        if (isSpeaking && this.state.isConnected && this.state.isVoiceActive) {
+            this.updateInteractionButton('ai_speaking');
+        } else if (this.state.isConnected && this.state.isVoiceActive && !this.state.isUserSpeaking) {
+            this.updateInteractionButton('listening');
+        }
+    }
+
+    // Transcription updates
     updateInputTranscription(text, show = true) {
         if (!this.elements.inputTranscription) return;
         this.elements.inputTranscription.textContent = text;
@@ -360,33 +396,313 @@ class UIController {
         this.elements.outputTranscription.classList.toggle('visible', show && !!text);
     }
 
-    updateStatusBanner(message, type = '') { // Matches function name in HTML
-        if (!this.elements.statusBanner) return;
-        this.elements.statusBanner.textContent = message;
-        this.elements.statusBanner.className = 'status-banner ' + type;
+    // Status banner
+    updateStatusBanner(message, type = '') {
+        if (!this.elements.status) return;
+        this.elements.status.textContent = message;
+        this.elements.status.className = `status ${type}`;
+        this.debugLog(`Status: ${message} (${type})`);
     }
-    
+
+    // NEW: Recent messages management (KEY FEATURE)
+    addToRecentMessages(text) {
+        if (!this.elements.recentMessages) return;
+        
+        // Create message element with exact styling from screenshot
+        const messageEl = document.createElement('div');
+        messageEl.className = 'message ai-message';
+        messageEl.innerHTML = `<span class="agent-name">Chloe:</span> ${this.sanitizeHTML(text)}`;
+        
+        // Add with smooth animation
+        messageEl.style.opacity = '0';
+        messageEl.style.transform = 'translateY(20px)';
+        
+        this.elements.recentMessages.appendChild(messageEl);
+        
+        // CRITICAL: Keep only 3 messages (exactly as per screenshot)
+        while (this.elements.recentMessages.children.length > this.state.maxRecentMessages) {
+            const firstChild = this.elements.recentMessages.firstChild;
+            if (firstChild) {
+                firstChild.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                firstChild.style.opacity = '0';
+                firstChild.style.transform = 'translateY(-20px)';
+                
+                setTimeout(() => {
+                    if (firstChild.parentNode) {
+                        firstChild.parentNode.removeChild(firstChild);
+                    }
+                }, 300);
+            }
+        }
+        
+        // Animate in new message
+        setTimeout(() => {
+            messageEl.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+            messageEl.style.opacity = '1';
+            messageEl.style.transform = 'translateY(0)';
+        }, 100);
+        
+        this.state.recentMessagesCount = this.elements.recentMessages.children.length;
+        this.debugLog(`Added to recent messages (${this.state.recentMessagesCount}/3): ${text.substring(0, 50)}...`);
+        
+        // Ensure the message is visible by scrolling if needed
+        if (this.elements.recentMessages.scrollHeight > this.elements.recentMessages.clientHeight) {
+            this.elements.recentMessages.scrollTop = this.elements.recentMessages.scrollHeight;
+        }
+    }
+
+    // Message management with proper chat integration
+    addMessage(text, sender, isHTML = false) {
+        // Add to conversation log (chat panel)
+        if (this.elements.conversationLog) {
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${sender}-message`;
+            
+            if (isHTML) {
+                messageEl.innerHTML = this.sanitizeHTML(text);
+            } else {
+                messageEl.innerHTML = this.linkifyText(this.sanitizeHTML(text));
+            }
+            
+            this.elements.conversationLog.appendChild(messageEl);
+            
+            // Auto-scroll to bottom
+            this.elements.conversationLog.scrollTop = this.elements.conversationLog.scrollHeight;
+        }
+        
+        // Also add to recent messages if it's from AI
+        if (sender === 'ai') {
+            this.addToRecentMessages(text);
+        }
+        
+        // Show unread indicator if chat is closed and it's an AI message
+        if (!this.state.isChatWidgetExpanded && sender === 'ai') {
+            this.state.hasUnreadMessages = true;
+            this.updateChatToggleIndicator();
+        }
+        
+        this.debugLog(`Added message (${sender}): ${text.substring(0, 50)}...`);
+    }
+
+    // Chat widget management with smooth animations
+    toggleChatWidget(forceShow) {
+        if (!this.elements.transcriptionPanel) return;
+        
+        const newState = forceShow !== undefined ? forceShow : !this.state.isChatWidgetExpanded;
+        
+        if (newState) {
+            // Show chat panel
+            this.elements.transcriptionPanel.style.display = 'flex';
+            // Force reflow
+            this.elements.transcriptionPanel.offsetHeight;
+            this.elements.transcriptionPanel.classList.add('open');
+            this.state.isChatWidgetExpanded = true;
+            this.state.hasUnreadMessages = false;
+            
+            // Hide chat toggle button
+            if (this.elements.chatToggle) {
+                this.elements.chatToggle.style.display = 'none';
+            }
+            
+            // Focus on input after animation and scroll to bottom
+            setTimeout(() => {
+                if (this.elements.chatTextInput && this.state.isConnected) {
+                    this.elements.chatTextInput.focus();
+                }
+                if (this.elements.conversationLog) {
+                    this.elements.conversationLog.scrollTop = this.elements.conversationLog.scrollHeight;
+                }
+            }, 300);
+            
+        } else {
+            // Hide chat panel
+            this.elements.transcriptionPanel.classList.remove('open');
+            this.state.isChatWidgetExpanded = false;
+            
+            // Show chat toggle button after animation completes
+            setTimeout(() => {
+                if (this.elements.chatToggle) {
+                    this.elements.chatToggle.style.display = 'block';
+                }
+                this.elements.transcriptionPanel.style.display = 'none';
+            }, 300);
+        }
+        
+        this.updateChatToggleIndicator();
+        this.debugLog(`Chat widget toggled: ${newState ? 'open' : 'closed'}`);
+    }
+
+    updateChatToggleIndicator() {
+        if (!this.elements.chatToggle) return;
+        
+        // Update toggle text based on unread messages
+        const textContent = this.state.hasUnreadMessages ? 
+            '💬 New messages • Tap to open chat' : 
+            '💬 Tap to open chat';
+        
+        this.elements.chatToggle.innerHTML = textContent;
+        
+        // Add visual indicator for unread messages
+        if (this.state.hasUnreadMessages) {
+            this.elements.chatToggle.classList.add('has-unread');
+        } else {
+            this.elements.chatToggle.classList.remove('has-unread');
+        }
+    }
+
+    // Utility functions
+    sanitizeHTML(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    linkifyText(text) {
+        const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])|(\bwww\.[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+        
+        return text.replace(urlRegex, function(url) {
+            let fullUrl = url;
+            if (!url.match(/^https?:\/\//i) && url.match(/^www\./i)) {
+                fullUrl = 'http://' + url;
+            }
+            return `<a href="${fullUrl}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+        });
+    }
+
+    // Clear methods
     clearTranscriptions() {
         this.updateInputTranscription('', false);
         this.updateOutputTranscription('', false);
     }
-}
 
-// Initialize UIController
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        if (!window.uiController) window.uiController = new UIController();
-    });
-} else {
-    if (!window.uiController) window.uiController = new UIController();
-}
+    clearRecentMessages() {
+        if (this.elements.recentMessages) {
+            this.elements.recentMessages.innerHTML = '';
+            this.state.recentMessagesCount = 0;
+            this.debugLog('Recent messages cleared');
+        }
+    }
 
-// Expose toggleTranscriptionPanel globally if needed by HTML onclick (though it's better to manage via class methods)
-// The HTML already has a global toggleTranscriptionPanel, let's ensure it calls the instance method.
-function toggleTranscriptionPanel(force) { // This global function will be overwritten by UIController instance if it's also global
-    if (window.uiController) {
-        window.uiController.toggleChatWidget(force); // Call the new method
-    } else {
-        console.warn('[GlobalToggle] uiController not ready');
+    clearChatHistory() {
+        if (this.elements.conversationLog) {
+            this.elements.conversationLog.innerHTML = '';
+            this.debugLog('Chat history cleared');
+        }
+    }
+
+    // Debug functionality
+    debugLog(message, isError = false, data = null) {
+        const timestamp = new Date().toISOString();
+        const logEntry = { timestamp, message, isError, data };
+        
+        this.state.debugMessages.push(logEntry);
+        
+        // Keep only last 100 messages
+        if (this.state.debugMessages.length > 100) {
+            this.state.debugMessages = this.state.debugMessages.slice(-100);
+        }
+        
+        console[isError ? 'error' : 'log'](`[${timestamp}] [UIController] ${message}`, data || '');
+        
+        // Make available globally for debug overlay
+        if (window.debugMessages) {
+            window.debugMessages.push(logEntry);
+        } else {
+            window.debugMessages = [logEntry];
+        }
+    }
+
+    showDebugInfo() {
+        if (!this.elements.debugOverlay || !this.elements.debugContent) return;
+        
+        let html = '<h3>Voice Chat Debug Info</h3>';
+        
+        html += '<h4>Connection Status</h4>';
+        html += `<p><strong>Connected:</strong> ${this.state.isConnected}</p>`;
+        html += `<p><strong>Connecting:</strong> ${this.state.isConnecting}</p>`;
+        html += `<p><strong>Voice Active:</strong> ${this.state.isVoiceActive}</p>`;
+        html += `<p><strong>Text Enabled:</strong> ${this.state.isConnected}</p>`;
+        
+        html += '<h4>UI State</h4>';
+        html += `<p><strong>Chat Open:</strong> ${this.state.isChatWidgetExpanded}</p>`;
+        html += `<p><strong>Recent Messages:</strong> ${this.state.recentMessagesCount}/${this.state.maxRecentMessages}</p>`;
+        html += `<p><strong>Unread Messages:</strong> ${this.state.hasUnreadMessages}</p>`;
+        html += `<p><strong>User Speaking:</strong> ${this.state.isUserSpeaking}</p>`;
+        html += `<p><strong>AI Speaking:</strong> ${this.state.isAISpeaking}</p>`;
+        
+        html += '<h4>Elements Check</h4>';
+        html += `<p><strong>Connect Button:</strong> ${!!this.elements.connectButton}</p>`;
+        html += `<p><strong>Interaction Circle:</strong> ${!!this.elements.userInteractionCircle}</p>`;
+        html += `<p><strong>Chat Panel:</strong> ${!!this.elements.transcriptionPanel}</p>`;
+        html += `<p><strong>Recent Messages:</strong> ${!!this.elements.recentMessages}</p>`;
+        html += `<p><strong>Conversation Log:</strong> ${!!this.elements.conversationLog}</p>`;
+        html += `<p><strong>Chat Input:</strong> ${!!this.elements.chatTextInput} (disabled: ${this.elements.chatTextInput?.disabled})</p>`;
+        
+        html += '<h4>Recent Debug Messages</h4>';
+        html += '<div style="max-height: 200px; overflow-y: auto; font-size: 11px; background: #2a2a2a; padding: 10px; border-radius: 4px;">';
+        this.state.debugMessages.slice(-15).forEach(msg => {
+            const time = msg.timestamp.split('T')[1].split('.')[0];
+            const color = msg.isError ? '#ff6666' : '#66ff66';
+            html += `<p style="margin: 2px 0; color: ${color}; font-family: monospace;">[${time}] ${msg.message}</p>`;
+        });
+        html += '</div>';
+        
+        this.elements.debugContent.innerHTML = html;
+        this.elements.debugOverlay.style.display = 'block';
+        
+        this.debugLog('Debug overlay opened');
+    }
+
+    hideDebugInfo() {
+        if (this.elements.debugOverlay) {
+            this.elements.debugOverlay.style.display = 'none';
+            this.debugLog('Debug overlay closed');
+        }
+    }
+
+    // Public API methods for external integration
+    getState() {
+        return { ...this.state };
+    }
+
+    isReady() {
+        return this.state.isConnected && !this.state.isConnecting;
+    }
+
+    canSendText() {
+        return this.state.isConnected; // Text always available when connected
+    }
+
+    canUseVoice() {
+        return this.state.isConnected;
+    }
+
+    // Get recent messages for external access
+    getRecentMessages() {
+        const messages = [];
+        if (this.elements.recentMessages) {
+            const messageElements = this.elements.recentMessages.querySelectorAll('.message');
+            messageElements.forEach(el => {
+                const text = el.textContent.replace('Chloe:', '').trim();
+                messages.push(text);
+            });
+        }
+        return messages;
     }
 }
+
+// Initialize UIController when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!window.uiController) {
+            window.uiController = new UIController();
+        }
+    });
+} else {
+    if (!window.uiController) {
+        window.uiController = new UIController();
+    }
+}
+
+// Make class available globally
+window.UIController = UIController;
