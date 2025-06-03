@@ -1,6 +1,7 @@
 /**
  * User Form Component for Voice Chat
  * Collects user information before starting the conversation
+ * Styled to match the main UI
  */
 
 class UserForm {
@@ -27,64 +28,81 @@ class UserForm {
             left: 0;
             right: 0;
             bottom: 0;
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: rgba(15, 17, 35, 0.9);
             display: flex;
             justify-content: center;
             align-items: center;
             z-index: 1000;
+            backdrop-filter: blur(5px);
         `;
 
         // Create form container
         this.formElement = document.createElement('div');
         this.formElement.className = 'user-form';
         this.formElement.style.cssText = `
-            background-color: #1a1a2e;
+            background-color: #1A1F35;
             border-radius: 12px;
-            padding: 24px;
+            padding: 28px;
             width: 90%;
             max-width: 500px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
             color: white;
-            font-family: Arial, sans-serif;
+            font-family: 'JetBrains Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            animation: fadeIn 0.3s ease;
         `;
 
         // Create form content
         this.formElement.innerHTML = `
-            <h2 style="margin-top: 0; color: #7b68ee; text-align: center; font-size: 24px;">Welcome to Voice Chat</h2>
-            <p style="margin-bottom: 20px; text-align: center;">Please provide your information to get started</p>
+            <h2 style="margin-top: 0; color: #8A2BE2; text-align: center; font-size: 24px; font-weight: 600;">Welcome to Voice Chat</h2>
+            <p style="margin-bottom: 24px; text-align: center; opacity: 0.9;">Please provide your information to get started</p>
             
             <form id="userInfoForm">
-                <div style="margin-bottom: 16px;">
-                    <label for="userName" style="display: block; margin-bottom: 8px; font-weight: bold;">Your Name</label>
+                <div style="margin-bottom: 20px;">
+                    <label for="userName" style="display: block; margin-bottom: 10px; font-weight: 500; letter-spacing: 0.01em;">Your Name</label>
                     <input 
                         type="text" 
                         id="userName" 
                         value="${this.formData.name}"
                         placeholder="What should we call you?" 
-                        style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a40; color: white; font-size: 16px;"
+                        style="width: 100%; padding: 14px 18px; border-radius: 25px; border: 2px solid rgba(255, 255, 255, 0.2); background-color: rgba(255, 255, 255, 0.1); color: white; font-size: 15px; font-family: 'JetBrains Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: border-color 0.3s ease, background-color 0.3s ease;"
+                        onfocus="this.style.borderColor='#8A2BE2'; this.style.backgroundColor='rgba(255, 255, 255, 0.15)';"
+                        onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.1)';"
                     >
                 </div>
                 
-                <div style="margin-bottom: 24px;">
-                    <label for="userEmail" style="display: block; margin-bottom: 8px; font-weight: bold;">Your Email Address</label>
+                <div style="margin-bottom: 28px;">
+                    <label for="userEmail" style="display: block; margin-bottom: 10px; font-weight: 500; letter-spacing: 0.01em;">Your Email Address</label>
                     <input 
                         type="email" 
                         id="userEmail" 
                         value="${this.formData.email}"
                         placeholder="Where can we reach you?" 
-                        style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a40; color: white; font-size: 16px;"
+                        style="width: 100%; padding: 14px 18px; border-radius: 25px; border: 2px solid rgba(255, 255, 255, 0.2); background-color: rgba(255, 255, 255, 0.1); color: white; font-size: 15px; font-family: 'JetBrains Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; transition: border-color 0.3s ease, background-color 0.3s ease;"
+                        onfocus="this.style.borderColor='#8A2BE2'; this.style.backgroundColor='rgba(255, 255, 255, 0.15)';"
+                        onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.1)';"
                     >
                 </div>
                 
                 <button 
                     type="submit" 
-                    style="width: 100%; padding: 12px; background: #7b68ee; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.3s;"
-                    onmouseover="this.style.background='#9280ff'"
-                    onmouseout="this.style.background='#7b68ee'"
+                    style="width: 100%; padding: 12px; background-color: #4CAF50; color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; letter-spacing: 0.1em; text-transform: uppercase; font-family: 'JetBrains Mono', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; box-shadow: 0 3px 10px rgba(76, 175, 80, 0.15);"
+                    onmouseover="this.style.backgroundColor='#45a049'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(76, 175, 80, 0.3)';"
+                    onmouseout="this.style.backgroundColor='#4CAF50'; this.style.transform='translateY(0)'; this.style.boxShadow='0 3px 10px rgba(76, 175, 80, 0.15)';"
                 >
-                    Start Conversation
+                    START CONVERSATION
                 </button>
             </form>
+            
+            <style>
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                
+                /* Import JetBrains Mono font if not already loaded */
+                @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+            </style>
         `;
 
         // Add form to overlay
