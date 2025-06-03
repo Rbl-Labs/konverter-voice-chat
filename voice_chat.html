@@ -99,51 +99,80 @@
         <button class="debug-close" onclick="hideDebugInfo()">Close Debug</button>
     </div>
 
-    <!-- CORRECT ORDER - Load scripts in correct order -->
+    <!-- Load scripts in correct order using async/await approach -->
     <script>
-        // 1. Core audio components (PRESERVE EXISTING)
-        const scripts = [
-            './pcm_stream_player.js',
-            './advanced_audio_recorder.js', 
-            './audio_processor_worklet.js',
-            './telegram_audio_bridge.js',
-            
-            // 2. Original Gemini client
-            './gemini_telegram_client.js',
-            
-            // 3. UI controller
-            './ui_controller.js',
-            
-            // 4. Enhancement client
-            './gemini_telegram_client_enhancement.js'
-        ];
-        
-        // Load scripts sequentially
-        function loadScript(index) {
-            if (index >= scripts.length) {
+        // Helper function to load scripts with proper error handling
+        async function loadScript(src, timeout = 10000, type = 'text/javascript') {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                const timeoutId = setTimeout(() => { 
+                    script.remove(); 
+                    reject(new Error(`Script loading timeout: ${src}`)); 
+                }, timeout);
+                
+                script.onload = () => { 
+                    clearTimeout(timeoutId); 
+                    resolve(); 
+                };
+                
+                script.onerror = (e) => { 
+                    clearTimeout(timeoutId); 
+                    script.remove(); 
+                    reject(new Error(`Script loading failed: ${src}`)); 
+                };
+                
+                script.src = `${src}?v=${Date.now()}`; 
+                script.type = type; // Use the provided type
+                document.head.appendChild(script);
+            });
+        }
+
+        // Initialize the application
+        async function initializeApp() {
+            try {
+                console.log('[INIT] Starting app initialization...');
+                
+                // 1. Load core audio components
+                console.log('[INIT] Loading PCM Stream Player...');
+                await loadScript('./pcm_stream_player.js', 15000, 'module');
+                
+                console.log('[INIT] Loading Advanced Audio Recorder...');
+                await loadScript('./advanced_audio_recorder.js', 15000, 'module');
+                
+                console.log('[INIT] Loading Audio Processor Worklet...');
+                await loadScript('./audio_processor_worklet.js', 15000);
+                
+                console.log('[INIT] Loading Telegram Audio Bridge...');
+                await loadScript('./telegram_audio_bridge.js', 15000);
+                
+                // 2. Load UI Controller
+                console.log('[INIT] Loading UI Controller...');
+                await loadScript('./ui_controller.js', 15000);
+                
+                // 3. Load Gemini Client
+                console.log('[INIT] Loading Gemini Telegram Client...');
+                await loadScript('./gemini_telegram_client.js', 15000, 'module');
+                
+                // 4. Load Enhancement Client
+                console.log('[INIT] Loading Client Enhancements...');
+                await loadScript('./gemini_telegram_client_enhancement.js', 15000);
+                
+                // 5. Initialize the system
                 initializeSystem();
-                return;
+                
+            } catch (error) {
+                console.error('[INIT] Script loading error:', error);
+                if (window.uiController) {
+                    window.uiController.updateStatusBanner('Failed to load required components. Please refresh.', 'error');
+                } else {
+                    const status = document.getElementById('status');
+                    if (status) status.textContent = 'Failed to load required components. Please refresh.';
+                }
             }
-            
-            const script = document.createElement('script');
-            script.src = scripts[index];
-            
-            // Add type="module" for ES6 module scripts
-            if (scripts[index].includes('pcm_stream_player.js') || 
-                scripts[index].includes('advanced_audio_recorder.js') || 
-                scripts[index].includes('gemini_telegram_client.js')) {
-                script.type = 'module';
-            }
-            
-            script.onload = () => loadScript(index + 1);
-            script.onerror = () => {
-                console.error(`Failed to load: ${scripts[index]}`);
-                loadScript(index + 1);
-            };
-            document.head.appendChild(script);
         }
         
-        loadScript(0);
+        // Start the initialization process
+        initializeApp();
     </script>
     
     <script>
