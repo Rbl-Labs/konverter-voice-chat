@@ -49,13 +49,8 @@ window.enhanceGeminiClient = function(originalClient) {
         // CRITICAL: Handle ALL existing backend message types
         switch (message.type) {
             case 'ai_audio_chunk_pcm':
-                // PRESERVE: Audio playback through PCMStreamPlayer
-                if (this.pcmPlayer && this.pcmPlayer.isInitialized) {
-                    this.pcmPlayer.streamAudioChunk(message.audioData, message.sampleRate || 24000);
-                    if (window.uiController) {
-                        window.uiController.setAISpeaking(true);
-                    }
-                }
+                // Don't handle audio chunks here, let the original handler do it
+                // This ensures proper audio processing by the original client
                 break;
                 
             case 'function_executing':
