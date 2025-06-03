@@ -191,15 +191,32 @@ window.enhanceGeminiClient = function(originalClient) {
         
         // CRITICAL: Use existing WebSocket sending logic
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ 
+            // Create the message object
+            const messageObj = { 
                 type: 'text_input', 
                 text: text.trim(), 
                 timestamp: Date.now() 
-            }));
+            };
+            
+            // Convert to JSON string
+            const messageJson = JSON.stringify(messageObj);
+            
+            // Add detailed debug logging
+            console.log('[ENHANCE] WebSocket message being sent:', messageObj);
+            console.log('[ENHANCE] WebSocket readyState:', this.state.ws.readyState);
+            console.log('[ENHANCE] WebSocket JSON payload:', messageJson);
+            
+            // Send the message
+            this.state.ws.send(messageJson);
             
             // Add to UI immediately for user
             if (window.uiController) {
                 window.uiController.addMessage(text, 'user');
+            }
+            
+            // Add a debug message to the UI
+            if (window.uiController) {
+                window.uiController.addMessage(`[DEBUG] Text message sent to backend: "${text}"`, 'system');
             }
             
             console.log('[ENHANCE] Text message sent successfully');
