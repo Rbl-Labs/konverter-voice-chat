@@ -345,14 +345,28 @@ class GeminiTelegramClient {
             return;
         }
         
-        // Send user data and connect to Gemini
-        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ 
-                type: 'connect_gemini_with_user_data', 
-                timestamp: Date.now() 
-            }));
-            this.log('Sent connect_gemini_with_user_data message');
+        // First send user data to backend
+        const userInfoSent = this.sendUserInfo();
+        
+        if (!userInfoSent) {
+            this.log('Failed to send user info to backend', true);
+            if (window.uiController) {
+                window.uiController.updateStatusBanner('Failed to send user info', 'error');
+            }
+            return;
         }
+        
+        // Wait a moment to ensure user info is processed
+        setTimeout(() => {
+            // Then connect to Gemini with user data
+            if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+                this.state.ws.send(JSON.stringify({ 
+                    type: 'connect_gemini_with_user_data', 
+                    timestamp: Date.now() 
+                }));
+                this.log('Sent connect_gemini_with_user_data message');
+            }
+        }, 500); // 500ms delay to ensure user info is processed
     }
     
     async connectToWebSocket() {
