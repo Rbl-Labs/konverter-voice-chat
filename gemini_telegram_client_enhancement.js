@@ -257,13 +257,81 @@ window.enhanceGeminiClient = function(originalClient) {
         }
     };
     
-    // Enhanced connection methods
+    // Send user information to backend
+    originalClient.sendUserInfo = function() {
+        if (!this.userData) {
+            console.log('[ENHANCE] No user data to send');
+            return;
+        }
+        
+        if (!this.state.isConnectedToWebSocket) {
+            console.log('[ENHANCE] Cannot send user info: not connected to WebSocket');
+            return;
+        }
+        
+        console.log(`[ENHANCE] Sending user info to backend:`, this.userData);
+        
+        // Send user info to backend
+        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+            this.state.ws.send(JSON.stringify({ 
+                type: 'user_info_update', 
+                userData: this.userData, 
+                timestamp: Date.now() 
+            }));
+            
+            console.log('[ENHANCE] User info sent to backend');
+            
+            // Add to UI
+            if (window.uiController) {
+                window.uiController.updateStatusBanner(`Connected as ${this.userData.name}`, 'connected');
+            }
+            
+            return true;
+        } else {
+            console.log('[ENHANCE] WebSocket not ready for sending user info');
+            return false;
+        }
+    };
+
+    // Enhanced connection methods with user form
     originalClient.connect = function() {
         console.log('[ENHANCE] Connect method called');
         
         if (window.uiController) {
             window.uiController.setConnectionState('connecting');
         }
+        
+        // Check if we have user data
+        const userName = localStorage.getItem('user_name');
+        const userEmail = localStorage.getItem('user_email');
+        
+        // If we don't have user data, show the form
+        if (!userName || !userEmail) {
+            console.log('[ENHANCE] No user data found, showing form');
+            
+            // Create and show user form
+            const userForm = new window.UserForm();
+            userForm.onSubmit((formData) => {
+                console.log('[ENHANCE] User form submitted:', formData);
+                
+                // Store user data for system prompt
+                this.userData = formData;
+                
+                // Call original connect method
+                if (originalConnect) {
+                    originalConnect.call(this);
+                }
+            });
+            userForm.show();
+            return;
+        }
+        
+        // We already have user data
+        this.userData = {
+            name: userName,
+            email: userEmail
+        };
+        console.log('[ENHANCE] Using existing user data:', this.userData);
         
         // Call original connect method
         if (originalConnect) {

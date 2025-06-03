@@ -149,15 +149,19 @@
                 console.log('[INIT] Loading UI Controller...');
                 await loadScript('./ui_controller.js', 15000);
                 
-                // 3. Load Gemini Client
+                // 3. Load User Form
+                console.log('[INIT] Loading User Form...');
+                await loadScript('./user_form.js', 15000);
+                
+                // 4. Load Gemini Client
                 console.log('[INIT] Loading Gemini Telegram Client...');
                 await loadScript('./gemini_telegram_client.js', 15000, 'module');
                 
-                // 4. Load Enhancement Client
+                // 5. Load Enhancement Client
                 console.log('[INIT] Loading Client Enhancements...');
                 await loadScript('./gemini_telegram_client_enhancement.js', 15000);
                 
-                // 5. Initialize the system
+                // 6. Initialize the system
                 initializeSystem();
                 
             } catch (error) {

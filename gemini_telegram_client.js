@@ -434,8 +434,24 @@ class GeminiTelegramClient {
         this.log('Backend confirmed Gemini connected successfully');
         this.state.isGeminiSessionActive = true;
         this.state.isConversationPaused = true; 
+        
+        // Send user information to backend if available
+        if (this.userData) {
+            this.log('Sending user information to backend');
+            if (typeof this.sendUserInfo === 'function') {
+                this.sendUserInfo();
+            }
+        }
+        
         if (window.uiController) {
             window.uiController.setConnectionState('connected');
+            
+            // Update status banner with user name if available
+            if (this.userData && this.userData.name) {
+                window.uiController.updateStatusBanner(`Connected as ${this.userData.name}`, 'connected');
+            } else {
+                window.uiController.updateStatusBanner('Connected', 'connected');
+            }
         }
     }
     
