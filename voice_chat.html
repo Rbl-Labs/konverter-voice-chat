@@ -126,6 +126,14 @@
             
             const script = document.createElement('script');
             script.src = scripts[index];
+            
+            // Add type="module" for ES6 module scripts
+            if (scripts[index].includes('pcm_stream_player.js') || 
+                scripts[index].includes('advanced_audio_recorder.js') || 
+                scripts[index].includes('gemini_telegram_client.js')) {
+                script.type = 'module';
+            }
+            
             script.onload = () => loadScript(index + 1);
             script.onerror = () => {
                 console.error(`Failed to load: ${scripts[index]}`);
