@@ -305,9 +305,11 @@ class GeminiTelegramClient {
                 this.state.ws.close(); 
                 this.state.ws = null; 
             }
-            const fullWsUrl = `${wsUrl}&session=${this.state.sessionToken}`;
-            this.log(`Connecting to: ${fullWsUrl}`);
-            this.state.ws = new WebSocket(fullWsUrl);
+            // Use the wsUrl directly as it should already contain the session token
+            // The sessionToken from this.state.sessionToken is the raw one from the initial page URL,
+            // while wsUrl (from this.state.sessionConfig.websocketProxyUrl) contains the processed one from n8n.
+            this.log(`Connecting to: ${wsUrl}`);
+            this.state.ws = new WebSocket(wsUrl);
             this.setupWebSocketHandlers();
         } catch (error) {
             this.log(`WebSocket connection setup error: ${error.message}`, true);
@@ -657,3 +659,4 @@ class GeminiTelegramClient {
 if (typeof window !== 'undefined') {
     window.GeminiTelegramClient = GeminiTelegramClient;
 }
+
