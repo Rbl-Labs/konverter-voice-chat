@@ -281,6 +281,16 @@ class GeminiTelegramClient {
         this.log('Starting conversation with AdvancedAudioRecorder (Play pressed)');
         this.state.isConversationPaused = false;
         
+        // IMPORTANT: Send a resume notification to the backend to restore session context
+        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+            this.state.ws.send(JSON.stringify({ 
+                type: 'conversation_resumed', 
+                timestamp: Date.now(),
+                userData: this.userData // Include user data to restore context
+            }));
+            this.log('Sent conversation_resumed message to backend');
+        }
+        
         try {
             if (!this.advancedRecorder.isRecording) {
                 this.log('AdvancedAudioRecorder not recording, starting it...');
@@ -309,6 +319,17 @@ class GeminiTelegramClient {
             this.pcmPlayer.stopPlayback(); 
             this.log('AI Playback stopped due to user pause.');
         }
+        
+        // IMPORTANT: Send a pause notification to the backend to maintain session context
+        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+            this.state.ws.send(JSON.stringify({ 
+                type: 'conversation_paused', 
+                timestamp: Date.now(),
+                userData: this.userData // Include user data to maintain context
+            }));
+            this.log('Sent conversation_paused message to backend');
+        }
+        
         if (window.uiController) {
             window.uiController.updateInteractionButton('ready_to_play');
             window.uiController.setUserSpeaking(false);
