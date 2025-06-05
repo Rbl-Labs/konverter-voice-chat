@@ -42,7 +42,7 @@ window.enhanceGeminiClient = function(originalClient) {
                 // IMPORTANT: Let original client handle this completely
                 console.log('[ENHANCE] Turn complete - delegating to original client');
                 // Don't interfere with turn-based message ordering
-                break;
+                // No break here - let original handler process this message
                 
             case 'text_response':
                 // IMPORTANT: Only handle live transcription, don't add to conversation log
@@ -50,7 +50,7 @@ window.enhanceGeminiClient = function(originalClient) {
                     window.uiController.updateOutputTranscription(message.text, true, true);
                 }
                 // Let original client handle this too (but it should just update transcription)
-                break;
+                // No break here - let original handler process this message
                 
             case 'function_executing':
                 console.log(`[ENHANCE] Function executing: ${message.functionName}`);
