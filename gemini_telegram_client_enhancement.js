@@ -47,6 +47,12 @@ window.enhanceGeminiClient = function(originalClient) {
         // to avoid duplicate messages in the UI
         return;
     }
+    
+    // ADDED: Handle output_transcription messages for aggregation
+    if (message.type === 'output_transcription' && message.text) {
+        // Add to buffer for aggregation
+        this.aggregateMessage(message.text);
+    }
         
         // CRITICAL: Handle ALL existing backend message types
         switch (message.type) {
