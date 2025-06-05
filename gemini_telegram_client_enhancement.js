@@ -104,7 +104,7 @@ window.enhanceGeminiClient = function(originalClient) {
         }
     };
     
-    // NEW: Message aggregation with proper sentence detection
+    // IMPROVED: Message aggregation based on turn structure
     originalClient.aggregateMessage = function(text) {
         if (!text || text.trim().length === 0) return;
         
@@ -116,18 +116,19 @@ window.enhanceGeminiClient = function(originalClient) {
             clearTimeout(this.messageTimeout);
         }
         
-        // Set timeout to flush buffer after delay
+        // Set timeout to flush buffer after delay - this is a fallback
+        // in case turn_complete is not received for some reason
         this.messageTimeout = setTimeout(() => {
+            console.log('[ENHANCE] Aggregation timeout reached, flushing buffer');
             this.flushMessageBuffer();
         }, this.messageAggregationDelay);
         
-        // Check for sentence endings to flush immediately
-        // Only flush if we have a reasonable amount of text (at least 15 chars)
-        if (this.messageBuffer.length > 15 && this.sentenceEndRegex.test(text.trim())) {
-            console.log('[ENHANCE] Detected sentence end, flushing buffer');
-            clearTimeout(this.messageTimeout);
-            setTimeout(() => this.flushMessageBuffer(), 500); // Small delay for natural flow
-        }
+        // We no longer flush based on sentence detection
+        // Instead, we rely on the turn_complete message from the backend
+        // to know when a complete response has been received
+        
+        // For debugging only - log the current buffer length
+        console.log(`[ENHANCE] Current buffer (${this.messageBuffer.length} chars)`);
     };
     
     // NEW: Flush complete messages to UI
