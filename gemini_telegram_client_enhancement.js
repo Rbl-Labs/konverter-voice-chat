@@ -1,9 +1,9 @@
 /**
  * Enhanced Gemini Telegram Client with Voice+Text Support
- * Version: 5.0.0 - Turn-based compatible version
+ * Version: 5.0.1 - Fixed recursion issues
  * 
  * NOW: Compatible with backend turn-based message system
- * REMOVES: Message interference that caused ordering issues
+ * FIXES: Infinite recursion in handleCriticalError and setupHealthMonitoring
  */
 
 // Enhancement wrapper that preserves ALL original functionality
@@ -22,6 +22,8 @@ window.enhanceGeminiClient = function(originalClient) {
     const originalDisconnect = originalClient.disconnect;
     const originalStartConversation = originalClient.startConversation;
     const originalPauseConversation = originalClient.pauseConversation;
+    const originalHandleCriticalError = originalClient.handleCriticalError; // FIXED: Store original
+    const originalSetupHealthMonitoring = originalClient.setupHealthMonitoring; // FIXED: Store original
     
     // Add enhancement properties (REMOVED problematic message buffering)
     originalClient.isTextChatEnabled = true; // Always allow text during sessions
@@ -336,7 +338,7 @@ window.enhanceGeminiClient = function(originalClient) {
         }
     };
     
-    // Enhanced error handling
+    // Enhanced error handling - FIXED: Avoid infinite recursion
     originalClient.handleCriticalError = function(context, error) {
         console.error(`[ENHANCE] Critical error in ${context}:`, error);
         
@@ -345,8 +347,8 @@ window.enhanceGeminiClient = function(originalClient) {
         }
         
         // Call original error handler if it exists
-        if (originalClient.handleCriticalError) {
-            return originalClient.handleCriticalError.call(this, context, error);
+        if (originalHandleCriticalError) {
+            return originalHandleCriticalError.call(this, context, error);
         }
     };
     
@@ -390,13 +392,13 @@ window.enhanceGeminiClient = function(originalClient) {
         }
     };
     
-    // Health monitoring enhancement
+    // Health monitoring enhancement - FIXED: Avoid infinite recursion
     originalClient.setupHealthMonitoring = function() {
         console.log('[ENHANCE] Setting up enhanced health monitoring');
         
         // Call original health monitoring setup
-        if (originalClient.setupHealthMonitoring) {
-            originalClient.setupHealthMonitoring.call(this);
+        if (originalSetupHealthMonitoring) {
+            originalSetupHealthMonitoring.call(this);
         }
         
         // Add enhanced health check UI updates
@@ -455,7 +457,7 @@ window.enhanceGeminiClient = function(originalClient) {
         };
     };
     
-    console.log('[ENHANCE] Client enhancement v5.0 complete - Turn-based compatible');
+    console.log('[ENHANCE] Client enhancement v5.0.1 complete - Fixed recursion issues');
     console.log('[ENHANCE] Available methods:', Object.getOwnPropertyNames(originalClient).filter(name => 
         typeof originalClient[name] === 'function' && name.startsWith('is') || name.includes('toggle') || name.includes('get')
     ));
