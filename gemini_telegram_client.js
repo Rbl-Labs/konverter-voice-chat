@@ -1,6 +1,6 @@
 /**
  * Modern Gemini Telegram Client with enhanced mobile compatibility and error handling
- * Version: 3.3.0 (Integrates PCMStreamPlayer for AI audio playback)
+ * Version: 3.3.5 (Integrates PCMStreamPlayer for AI audio playback)
  */
 import { AdvancedAudioRecorder } from './advanced_audio_recorder.js';
 import { PCMStreamPlayer } from './pcm_stream_player.js';
