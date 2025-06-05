@@ -521,6 +521,9 @@ class GeminiTelegramClient {
                 case 'debug_log': 
                     this.log(`[Backend Debug] ${message.message || ''}`, message.isError || message.level === 'ERROR', message.data);
                     break;
+                case 'websocket_ready_ack':
+                    this.log('WebSocket connection acknowledged by backend');
+                    break;
                 default:
                     this.log(`Unknown message type: ${message.type}`, true, message);
             }

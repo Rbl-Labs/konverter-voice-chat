@@ -139,8 +139,10 @@
                 console.log('[INIT] Loading Advanced Audio Recorder...');
                 await loadScript('./advanced_audio_recorder.js', 15000, 'module');
                 
-                console.log('[INIT] Loading Audio Processor Worklet...');
-                await loadScript('./audio_processor_worklet.js', 15000);
+                // Temporarily commenting out direct loading of AudioProcessorWorklet
+                // This should be loaded only via AudioWorklet API in AdvancedAudioRecorder
+                // console.log('[INIT] Loading Audio Processor Worklet...');
+                // await loadScript('./audio_processor_worklet.js', 15000);
                 
                 console.log('[INIT] Loading Telegram Audio Bridge...');
                 await loadScript('./telegram_audio_bridge.js', 15000);
