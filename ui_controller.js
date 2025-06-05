@@ -488,11 +488,16 @@ class UIController {
     }
 
     // Message management with proper chat integration
-    addMessage(text, sender, isHTML = false) {
+    addMessage(text, sender, isHTML = false, isVoiceMessage = false) {
         // Add to conversation log (chat panel)
         if (this.elements.conversationLog) {
             const messageEl = document.createElement('div');
             messageEl.className = `message ${sender}-message`;
+            
+            // Add voice message indicator
+            if (isVoiceMessage) {
+                messageEl.classList.add('voice-message');
+            }
             
             // Create message container with avatar
             const messageContainer = document.createElement('div');
@@ -511,7 +516,8 @@ class UIController {
                 avatarDiv.appendChild(avatarImg);
             } else {
                 // Use a colored circle for user messages
-                avatarDiv.innerHTML = '<div class="user-avatar-circle"></div>';
+                const circleContent = isVoiceMessage ? '🎤' : '';
+                avatarDiv.innerHTML = `<div class="user-avatar-circle">${circleContent}</div>`;
             }
             
             // Create message content
@@ -522,6 +528,15 @@ class UIController {
                 contentDiv.innerHTML = this.sanitizeHTML(text);
             } else {
                 contentDiv.innerHTML = this.linkifyText(this.sanitizeHTML(text));
+            }
+            
+            // Add voice indicator for voice messages
+            if (isVoiceMessage && sender === 'user') {
+                const voiceIndicator = document.createElement('span');
+                voiceIndicator.className = 'voice-indicator';
+                voiceIndicator.innerHTML = '🎤';
+                voiceIndicator.title = 'Voice message';
+                contentDiv.appendChild(voiceIndicator);
             }
             
             // Assemble the message
@@ -538,7 +553,19 @@ class UIController {
             
             // Auto-scroll to bottom
             this.elements.conversationLog.scrollTop = this.elements.conversationLog.scrollHeight;
+            
+            // Show unread indicator if chat is closed and it's an AI message
+            if (!this.state.isChatWidgetExpanded && sender === 'ai') {
+                this.state.hasUnreadMessages = true;
+                this.updateChatToggleIndicator();
+            }
+            
+            this.debugLog(`Added ${isVoiceMessage ? 'voice ' : ''}message (${sender}): ${text.substring(0, 50)}...`);
+            
+            return messageEl;
         }
+        
+        return null;
         
         // Also add to recent messages if it's from AI - COMMENTED OUT
         /*

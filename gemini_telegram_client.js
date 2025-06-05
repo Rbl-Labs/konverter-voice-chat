@@ -622,8 +622,28 @@ class GeminiTelegramClient {
     handleInputTranscription(message) {
         if (message.text) {
             this.state.transcriptions.input = message.text;
+            
+            // Update the temporary transcription display
             if (window.uiController) { 
                 window.uiController.updateInputTranscription(message.text); 
+            }
+            
+            // CRITICAL FIX: Check if this is a final transcription
+            // If the message indicates this is final/complete, add to conversation log
+            if (message.isFinal || message.final || message.complete) {
+                this.log(`Final user transcription received: "${message.text}"`);
+                
+                // Add the final transcription to conversation log
+                if (window.uiController) {
+                    window.uiController.addMessage(message.text, 'user');
+                }
+                
+                // Clear the temporary transcription since it's now in the conversation log
+                setTimeout(() => {
+                    if (window.uiController) {
+                        window.uiController.updateInputTranscription('', false);
+                    }
+                }, 1000); // Give user 1 second to see the final transcription
             }
         }
     }
@@ -637,6 +657,13 @@ class GeminiTelegramClient {
     
     handleTurnComplete() {
         this.log('Turn complete received from backend'); 
+        
+        // CRITICAL FIX: Add the final user transcription to the conversation log if it exists
+        if (this.state.transcriptions.input && this.state.transcriptions.input.trim() && window.uiController) {
+            this.log(`Adding final transcription from turn complete: "${this.state.transcriptions.input}"`);
+            window.uiController.addMessage(this.state.transcriptions.input, 'user', false, true);
+        }
+        
         this.state.transcriptions.input = ''; 
         this.state.transcriptions.output = '';
         if (window.uiController) {

@@ -1030,6 +1030,63 @@ body {
   width: 100%;
 }
 
+/* Voice message styling */
+.voice-message {
+  position: relative;
+}
+
+.voice-message::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 60%;
+  background: linear-gradient(45deg, #4CAF50, #81C784);
+  border-radius: 2px;
+  opacity: 0.8;
+}
+
+.voice-indicator {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-left: 8px;
+}
+
+.user-avatar-circle {
+  width: 28px;
+  height: 28px;
+  background-color: var(--secondary-color);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+/* Animation for voice transcription appearing */
+.voice-message {
+  animation: voiceSlideIn 0.4s ease-out;
+}
+
+@keyframes voiceSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Transcription display styling */
+.input-transcription.visible {
+  background: rgba(76, 175, 80, 0.1);
+  border-left: 3px solid #4CAF50;
+}
+
 .ai-container {
   flex-direction: row;
 }
