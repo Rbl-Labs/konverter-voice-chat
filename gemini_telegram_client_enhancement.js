@@ -157,12 +157,8 @@ window.enhanceGeminiClient = function(originalClient) {
             // Send to UI controller
             if (window.uiController) {
                 // Add message to both the conversation log and recent messages display
+                // The addMessage method will also add it to recent messages when sender is 'ai'
                 window.uiController.addMessage(completeMessage, 'ai');
-                
-                // Also update recent messages display directly to ensure visibility
-                if (typeof window.uiController.addToRecentMessages === 'function') {
-                    window.uiController.addToRecentMessages(completeMessage);
-                }
             }
             
             console.log(`[ENHANCE] Flushed complete message: "${completeMessage.substring(0, 100)}..."`);
