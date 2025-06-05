@@ -410,10 +410,26 @@ class UIController {
         this.elements.inputTranscription.classList.toggle('visible', show && !!text);
     }
     
-    updateOutputTranscription(text, show = true) {
+    // IMPROVED: Make agent transcription accumulate like user messages
+    updateOutputTranscription(text, show = true, append = false) {
         if (!this.elements.outputTranscription) return;
-        this.elements.outputTranscription.textContent = text;
+        
+        // If append is true, add to existing text instead of replacing
+        if (append && this.elements.outputTranscription.textContent) {
+            this.elements.outputTranscription.textContent += text;
+        } else {
+            this.elements.outputTranscription.textContent = text;
+        }
+        
         this.elements.outputTranscription.classList.toggle('visible', show && !!text);
+    }
+    
+    // Clear output transcription when a turn is complete
+    clearOutputTranscription() {
+        if (this.elements.outputTranscription) {
+            this.elements.outputTranscription.textContent = '';
+            this.elements.outputTranscription.classList.toggle('visible', false);
+        }
     }
 
     // Status banner

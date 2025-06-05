@@ -48,10 +48,19 @@ window.enhanceGeminiClient = function(originalClient) {
         return;
     }
     
-    // ADDED: Handle output_transcription messages for aggregation
+    // ADDED: Handle output_transcription messages for aggregation and live display
     if (message.type === 'output_transcription' && message.text) {
         // Add to buffer for aggregation
         this.aggregateMessage(message.text);
+        
+        // Also append to the live transcription area instead of replacing
+        if (window.uiController) {
+            window.uiController.updateOutputTranscription(message.text, true, true);
+        }
+        
+        // Don't call original handler for output_transcription
+        // since we're handling it ourselves with improved behavior
+        return;
     }
         
         // CRITICAL: Handle ALL existing backend message types
