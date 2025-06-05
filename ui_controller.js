@@ -494,12 +494,46 @@ class UIController {
             const messageEl = document.createElement('div');
             messageEl.className = `message ${sender}-message`;
             
-            if (isHTML) {
-                messageEl.innerHTML = this.sanitizeHTML(text);
+            // Create message container with avatar
+            const messageContainer = document.createElement('div');
+            messageContainer.className = `message-container ${sender}-container`;
+            
+            // Add avatar based on sender
+            const avatarDiv = document.createElement('div');
+            avatarDiv.className = 'message-avatar';
+            
+            if (sender === 'ai') {
+                // Use Chloe's avatar for AI messages
+                const avatarImg = document.createElement('img');
+                avatarImg.src = './assets/chloe_avatar.png';
+                avatarImg.alt = 'Chloe';
+                avatarImg.className = 'avatar-image';
+                avatarDiv.appendChild(avatarImg);
             } else {
-                messageEl.innerHTML = this.linkifyText(this.sanitizeHTML(text));
+                // Use a colored circle for user messages
+                avatarDiv.innerHTML = '<div class="user-avatar-circle"></div>';
             }
             
+            // Create message content
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            if (isHTML) {
+                contentDiv.innerHTML = this.sanitizeHTML(text);
+            } else {
+                contentDiv.innerHTML = this.linkifyText(this.sanitizeHTML(text));
+            }
+            
+            // Assemble the message
+            if (sender === 'ai') {
+                messageContainer.appendChild(avatarDiv);
+                messageContainer.appendChild(contentDiv);
+            } else {
+                messageContainer.appendChild(contentDiv);
+                messageContainer.appendChild(avatarDiv);
+            }
+            
+            messageEl.appendChild(messageContainer);
             this.elements.conversationLog.appendChild(messageEl);
             
             // Auto-scroll to bottom
