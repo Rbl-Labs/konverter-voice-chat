@@ -32,70 +32,47 @@ window.enhanceGeminiClient = function(originalClient) {
     
     console.log('[ENHANCE] Enhancement properties added');
     
-    // FIXED: Enhanced message handling - compatible with turn-based system
     originalClient.handleWebSocketMessage = function(message) {
-        console.log('[ENHANCE] Processing message:', message.type);
-        
-        // CRITICAL: Handle enhancement-specific features without interfering with turn system
-        switch (message.type) {
-            case 'conversation_turn_complete':
-                // IMPORTANT: Let original client handle this completely
-                console.log('[ENHANCE] Turn complete - delegating to original client');
-                // Don't interfere with turn-based message ordering
-                // No break here - let original handler process this message
-                
-            case 'text_response':
-                // IMPORTANT: Only handle live transcription, don't add to conversation log
-                if (window.uiController) {
-                    window.uiController.updateOutputTranscription(message.text, true, true);
-                }
-                // Let original client handle this too (but it should just update transcription)
-                // No break here - let original handler process this message
-                
-            case 'function_executing':
-                console.log(`[ENHANCE] Function executing: ${message.functionName}`);
-                if (window.uiController) {
-                    window.uiController.updateStatusBanner(`Executing: ${message.functionName}`, 'processing');
-                }
-                break;
-                
-            case 'function_completed':
-                console.log(`[ENHANCE] Function completed: ${message.functionName}, success: ${message.success}`);
-                if (window.uiController) {
-                    const status = message.success ? '✅' : '❌';
-                    window.uiController.updateStatusBanner(`${status} ${message.functionName}`, 'info');
-                }
-                break;
-                
-            case 'health_check':
-                console.log('[ENHANCE] Health check received');
-                break;
-                
-            case 'gemini_raw_output':
-                console.log('[ENHANCE] Raw output received for debugging');
-                break;
-                
-            case 'turn_complete':
-                // Handle UI updates for turn completion
-                if (window.uiController) {
-                    window.uiController.setAISpeaking(false);
-                    // Don't change user speaking state - let original client handle voice logic
-                }
-                break;
-                
-            case 'interrupted':
-                // Handle UI updates for interruption
-                if (window.uiController) {
-                    window.uiController.setAISpeaking(false);
-                }
-                break;
-        }
-        
-        // CRITICAL: Always call original handler for ALL message types
+    console.log('[ENHANCE] Processing message:', message.type);
+    
+    // Step 1: Handle enhancement-only messages
+    let enhancementHandled = false;
+    
+    switch (message.type) {
+        case 'function_executing':
+            console.log(`[ENHANCE] Function executing: ${message.functionName}`);
+            if (window.uiController) {
+                window.uiController.updateStatusBanner(`Executing: ${message.functionName}`, 'processing');
+            }
+            enhancementHandled = true;
+            break;
+            
+        case 'function_completed':
+            console.log(`[ENHANCE] Function completed: ${message.functionName}, success: ${message.success}`);
+            if (window.uiController) {
+                const status = message.success ? '✅' : '❌';
+                window.uiController.updateStatusBanner(`${status} ${message.functionName}`, 'info');
+            }
+            enhancementHandled = true;
+            break;
+    }
+    
+    // Step 2: For core messages, call original handler FIRST
+    if (!enhancementHandled) {
         if (originalHandleWebSocketMessage) {
             originalHandleWebSocketMessage.call(this, message);
         }
-    };
+        
+        // Then add non-interfering enhancements
+        switch (message.type) {
+            case 'text_response':
+                if (window.uiController) {
+                    window.uiController.updateOutputTranscription(message.text, true, true);
+                }
+                break;
+        }
+    }
+};
     
     // FIXED: Text message sending - compatible with turn-based system
     originalClient.sendTextMessage = function(text) {

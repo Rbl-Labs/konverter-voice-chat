@@ -162,45 +162,46 @@ class UIController {
     }
 
     // Voice session handling with form data integration
-    handleInteractionToggle() {
+    async handleInteractionToggle() {
         if (!window.geminiClient) {
-            this.debugLog('No geminiClient available', true);
             this.updateStatusBanner('Client not initialized', 'error');
             return;
         }
         
-        // Check if we need to connect to Gemini with user data first
-        if (window.geminiClient.state && window.geminiClient.state.isConnectedToWebSocket && 
-            !window.geminiClient.state.isGeminiSessionActive) {
+        const state = window.geminiClient.state;
+        
+        if (!state.isConnectedToWebSocket) {
+            window.geminiClient.connect();
+            return;
+        }
+        
+        if (state.isConnectedToWebSocket && !state.isGeminiSessionActive) {
+            if (!window.geminiClient.userData) {
+                this.updateStatusBanner('Please fill out the form first', 'error');
+                return;
+            }
             
-            this.debugLog('Play button clicked - connecting to Gemini with user data');
-            
-            // Use the new handlePlayButtonPress method
-            if (typeof window.geminiClient.handlePlayButtonPress === 'function') {
-                window.geminiClient.handlePlayButtonPress();
+            try {
+                // Pre-request microphone permission
+                this.updateStatusBanner('Requesting microphone access...', 'info');
+                if (window.geminiClient.advancedRecorder) {
+                    await window.geminiClient.advancedRecorder.requestPermissionAndInitialize();
+                }
                 this.updateStatusBanner('Connecting to Gemini...', 'connecting');
-            } else {
-                this.debugLog('handlePlayButtonPress method not available', true);
+                window.geminiClient.handlePlayButtonPress();
+            } catch (error) {
+                this.updateStatusBanner('Microphone access required', 'error');
             }
             return;
         }
         
-        // Normal voice session toggle when already connected to Gemini
-        if (this.state.isConnected) {
-            if (typeof window.geminiClient.toggleVoiceSession === 'function') {
-                const voiceActive = window.geminiClient.toggleVoiceSession();
-                this.debugLog(`Voice session toggled: ${voiceActive ? 'active' : 'paused'}`);
-            } else if (typeof window.geminiClient.startConversation === 'function') {
-                // Fallback to existing method
-                if (window.geminiClient.state && window.geminiClient.state.isConversationPaused) {
-                    window.geminiClient.startConversation();
-                } else {
-                    window.geminiClient.pauseConversation();
-                }
+        // Normal voice toggle
+        if (state.isGeminiSessionActive) {
+            if (state.isConversationPaused) {
+                await window.geminiClient.startConversation();
+            } else {
+                window.geminiClient.pauseConversation();
             }
-        } else {
-            this.debugLog('Interaction button clicked but not connected');
-            this.updateStatusBanner('Connect first to use voice chat', 'error');
         }
     }
 
