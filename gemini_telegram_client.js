@@ -362,7 +362,7 @@ class GeminiTelegramClient {
     }
 
     // Add this method to handle Play button
-    async handlePlayButtonPress() {
+    handlePlayButtonPress() {
         if (!this.state.isConnectedToWebSocket) {
             this.log('Cannot start: not connected to WebSocket', true);
             return;
@@ -374,34 +374,6 @@ class GeminiTelegramClient {
                 window.uiController.updateStatusBanner('Please fill out the form first', 'error');
             }
             return;
-        }
-        
-        // CRITICAL FIX: Check microphone permissions BEFORE connecting to Gemini
-        try {
-            this.log('Checking microphone permissions before connecting to Gemini...');
-            if (window.uiController) {
-                window.uiController.updateStatusBanner('Requesting microphone access...', 'warning');
-            }
-            
-            // Request microphone permissions explicitly
-            if (this.advancedRecorder) {
-                await this.advancedRecorder.requestPermissionAndInitialize();
-                this.log('Microphone permission granted, proceeding with connection');
-                this.state.permissionState = 'granted'; // Store permission state
-                if (window.uiController) {
-                    window.uiController.updateStatusBanner('Microphone access granted, connecting...', 'success');
-                }
-            } else {
-                throw new Error('Audio recorder not initialized');
-            }
-        } catch (error) {
-            this.log('Microphone permission denied or error', true, error);
-            this.state.permissionState = 'denied'; // Store permission state
-            if (window.uiController) {
-                window.uiController.updateStatusBanner('Microphone access denied. Please allow microphone access.', 'error');
-                window.uiController.addMessage('🎤 Microphone access is required. Please check browser settings.', 'system');
-            }
-            return; // Stop here if permissions are denied
         }
         
         // First send user data to backend

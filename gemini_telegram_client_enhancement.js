@@ -55,49 +55,6 @@ window.enhanceGeminiClient = function(originalClient) {
             }
             enhancementHandled = true;
             break;
-            
-        // CRITICAL FIX: Handle conversation_turn_complete messages
-        case 'conversation_turn_complete':
-            console.log(`[ENHANCE] Conversation turn complete:`, message.turn);
-            
-            // Store in message history
-            if (message.turn) {
-                this.messageHistory.push(message.turn);
-                
-                // Trim history if needed
-                if (this.messageHistory.length > 50) {
-                    this.messageHistory = this.messageHistory.slice(-50);
-                }
-                
-                // Add messages to UI conversation log
-                if (window.uiController) {
-                    // Add user message first (if exists)
-                    if (message.turn.userMessage && message.turn.userMessage.trim()) {
-                        const isVoiceMessage = message.turn.userMethod === 'voice';
-                        window.uiController.addMessage(
-                            message.turn.userMessage, 
-                            'user', 
-                            false, 
-                            isVoiceMessage
-                        );
-                        console.log(`[ENHANCE] Added user message to conversation log: "${message.turn.userMessage.substring(0, 50)}..."`);
-                    }
-                    
-                    // Add AI response second (if exists)
-                    if (message.turn.aiResponse && message.turn.aiResponse.trim()) {
-                        window.uiController.addMessage(
-                            message.turn.aiResponse, 
-                            'ai', 
-                            false, 
-                            false
-                        );
-                        console.log(`[ENHANCE] Added AI response to conversation log: "${message.turn.aiResponse.substring(0, 50)}..."`);
-                    }
-                }
-            }
-            
-            enhancementHandled = true;
-            break;
     }
     
     // Step 2: For core messages, call original handler FIRST
