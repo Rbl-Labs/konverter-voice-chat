@@ -633,9 +633,10 @@ class GeminiTelegramClient {
             if (message.isFinal || message.final || message.complete) {
                 this.log(`Final user transcription received: "${message.text}"`);
                 
-                // Add the final transcription to conversation log
+                // Add the final transcription to conversation log WITH VOICE INDICATOR
                 if (window.uiController) {
-                    window.uiController.addMessage(message.text, 'user');
+                    // Pass isVoiceMessage=true to mark this as a voice message
+                    window.uiController.addMessage(message.text, 'user', false, true);
                 }
                 
                 // Clear the temporary transcription since it's now in the conversation log
