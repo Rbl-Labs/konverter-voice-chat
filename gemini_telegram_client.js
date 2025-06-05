@@ -658,18 +658,18 @@ class GeminiTelegramClient {
     handleTurnComplete() {
         this.log('Turn complete received from backend'); 
         
-        // CRITICAL FIX: Add the final user transcription to the conversation log if it exists
-        if (this.state.transcriptions.input && this.state.transcriptions.input.trim() && window.uiController) {
-            this.log(`Adding final transcription from turn complete: "${this.state.transcriptions.input}"`);
-            window.uiController.addMessage(this.state.transcriptions.input, 'user', false, true);
-        }
+        // REMOVED: The fallback transcription logic to prevent duplication
+        // The backend now properly sends final transcriptions with isFinal=true
         
+        // Clear transcription state
         this.state.transcriptions.input = ''; 
         this.state.transcriptions.output = '';
+        
         if (window.uiController) {
             window.uiController.clearTranscriptions();
         }
 
+        // Continue with existing voice session management logic
         if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording) {
             if (this.advancedRecorder.isSuspended && !this.state.aiPlayedAudioThisTurn) {
                  this.log('Turn complete (no AI audio this turn or AI cut short), resuming user mic.');
