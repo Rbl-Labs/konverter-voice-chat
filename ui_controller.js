@@ -92,9 +92,9 @@ class UIController {
         this.updateStatusBanner('Ready to connect', '');
         this.toggleChatWidget(false);
         
-        // Ensure recent messages container is visible
+        // Hide recent messages container
         if (this.elements.recentMessages) {
-            this.elements.recentMessages.style.display = 'flex';
+            this.elements.recentMessages.style.display = 'none';
         }
     }
 
@@ -540,10 +540,12 @@ class UIController {
             this.elements.conversationLog.scrollTop = this.elements.conversationLog.scrollHeight;
         }
         
-        // Also add to recent messages if it's from AI
+        // Also add to recent messages if it's from AI - COMMENTED OUT
+        /*
         if (sender === 'ai') {
             this.addToRecentMessages(text);
         }
+        */
         
         // Show unread indicator if chat is closed and it's an AI message
         if (!this.state.isChatWidgetExpanded && sender === 'ai') {
