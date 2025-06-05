@@ -1,6 +1,7 @@
 /**
  * AdvancedAudioRecorder manages microphone input using Web Audio API and an AudioWorklet.
  * It provides a continuous stream of PCM audio chunks.
+ * Inspired by: https://github.com/ViaAnthroposBenevolentia/gemini-2-live-api-demo
  */
 export class AdvancedAudioRecorder {
     constructor(options = {}) {
