@@ -1,16 +1,14 @@
 /**
  * Enhanced Gemini Telegram Client with Voice+Text Support
- * Version: 4.1.0 - Implements proper message aggregation and chat during voice
+ * Version: 5.0.0 - Turn-based compatible version
  * 
- * PRESERVES all existing functionality while adding:
- * 1. Chat working during voice sessions (like Google AI Studio)
- * 2. Message aggregation with proper sentence completion
- * 3. Recent messages display (max 3 AI messages full-screen)
+ * NOW: Compatible with backend turn-based message system
+ * REMOVES: Message interference that caused ordering issues
  */
 
 // Enhancement wrapper that preserves ALL original functionality
 window.enhanceGeminiClient = function(originalClient) {
-    console.log('[ENHANCE] Starting client enhancement...');
+    console.log('[ENHANCE] Starting client enhancement v5.0 - Turn-based compatible...');
     
     if (!originalClient) {
         console.error('[ENHANCE] No original client provided');
@@ -25,49 +23,31 @@ window.enhanceGeminiClient = function(originalClient) {
     const originalStartConversation = originalClient.startConversation;
     const originalPauseConversation = originalClient.pauseConversation;
     
-    // Add enhancement properties
-    originalClient.messageBuffer = '';
-    originalClient.messageTimeout = null;
-    originalClient.messageAggregationDelay = 5000; // Increased to 5 seconds for more complete sentences
-    originalClient.sentenceEndRegex = /[.!?]\s*$/; // Better sentence detection
+    // Add enhancement properties (REMOVED problematic message buffering)
     originalClient.isTextChatEnabled = true; // Always allow text during sessions
     originalClient.messageHistory = []; // Store for recent messages
     originalClient.maxDisplayMessages = 3;
     
     console.log('[ENHANCE] Enhancement properties added');
     
-    // Enhanced message handling (PRESERVE ALL EXISTING TYPES)
+    // FIXED: Enhanced message handling - compatible with turn-based system
     originalClient.handleWebSocketMessage = function(message) {
         console.log('[ENHANCE] Processing message:', message.type);
         
-    // Handle new aggregated text responses
-    if (message.type === 'text_response') {
-        this.aggregateMessage(message.text);
-        // Don't call the original handler for text_response
-        // to avoid duplicate messages in the UI
-        return;
-    }
-    
-    // ADDED: Handle output_transcription messages for aggregation and live display
-    if (message.type === 'output_transcription' && message.text) {
-        // Add to buffer for aggregation
-        this.aggregateMessage(message.text);
-        
-        // Also append to the live transcription area instead of replacing
-        if (window.uiController) {
-            window.uiController.updateOutputTranscription(message.text, true, true);
-        }
-        
-        // Don't call original handler for output_transcription
-        // since we're handling it ourselves with improved behavior
-        return;
-    }
-        
-        // CRITICAL: Handle ALL existing backend message types
+        // CRITICAL: Handle enhancement-specific features without interfering with turn system
         switch (message.type) {
-            case 'ai_audio_chunk_pcm':
-                // Don't handle audio chunks here, let the original handler do it
-                // This ensures proper audio processing by the original client
+            case 'conversation_turn_complete':
+                // IMPORTANT: Let original client handle this completely
+                console.log('[ENHANCE] Turn complete - delegating to original client');
+                // Don't interfere with turn-based message ordering
+                break;
+                
+            case 'text_response':
+                // IMPORTANT: Only handle live transcription, don't add to conversation log
+                if (window.uiController) {
+                    window.uiController.updateOutputTranscription(message.text, true, true);
+                }
+                // Let original client handle this too (but it should just update transcription)
                 break;
                 
             case 'function_executing':
@@ -86,104 +66,36 @@ window.enhanceGeminiClient = function(originalClient) {
                 break;
                 
             case 'health_check':
-                // PRESERVE: Backend health monitoring
                 console.log('[ENHANCE] Health check received');
                 break;
                 
             case 'gemini_raw_output':
-                // PRESERVE: Debug information
                 console.log('[ENHANCE] Raw output received for debugging');
                 break;
                 
             case 'turn_complete':
-                // CRITICAL: Flush any remaining messages
-                this.flushMessageBuffer();
+                // Handle UI updates for turn completion
                 if (window.uiController) {
                     window.uiController.setAISpeaking(false);
-                    window.uiController.setUserSpeaking(false);
+                    // Don't change user speaking state - let original client handle voice logic
                 }
                 break;
                 
             case 'interrupted':
-                // CRITICAL: Clear message buffer on interruption
-                this.flushMessageBuffer();
-                if (this.pcmPlayer && this.pcmPlayer.isPlaying) {
-                    this.pcmPlayer.stopPlayback();
+                // Handle UI updates for interruption
+                if (window.uiController) {
+                    window.uiController.setAISpeaking(false);
                 }
                 break;
         }
         
-        // CRITICAL: Always call original handler for ALL other message types
+        // CRITICAL: Always call original handler for ALL message types
         if (originalHandleWebSocketMessage) {
             originalHandleWebSocketMessage.call(this, message);
         }
     };
     
-    // IMPROVED: Message aggregation based on turn structure
-    originalClient.aggregateMessage = function(text) {
-        if (!text || text.trim().length === 0) return;
-        
-        // Add to buffer
-        this.messageBuffer += text;
-        
-        // Clear existing timeout
-        if (this.messageTimeout) {
-            clearTimeout(this.messageTimeout);
-        }
-        
-        // Set timeout to flush buffer after delay - this is a fallback
-        // in case turn_complete is not received for some reason
-        this.messageTimeout = setTimeout(() => {
-            console.log('[ENHANCE] Aggregation timeout reached, flushing buffer');
-            this.flushMessageBuffer();
-        }, this.messageAggregationDelay);
-        
-        // We no longer flush based on sentence detection
-        // Instead, we rely on the turn_complete message from the backend
-        // to know when a complete response has been received
-        
-        // For debugging only - log the current buffer length
-        console.log(`[ENHANCE] Current buffer (${this.messageBuffer.length} chars)`);
-    };
-    
-    // NEW: Flush complete messages to UI
-    originalClient.flushMessageBuffer = function() {
-        if (this.messageBuffer.trim()) {
-            const completeMessage = this.messageBuffer.trim();
-            
-            // Add to message history for recent display
-            this.messageHistory.push({
-                text: completeMessage,
-                timestamp: Date.now(),
-                sender: 'ai'
-            });
-            
-            // Keep only last 3 messages
-            if (this.messageHistory.length > this.maxDisplayMessages) {
-                this.messageHistory = this.messageHistory.slice(-this.maxDisplayMessages);
-            }
-            
-            // Send to UI controller
-            if (window.uiController) {
-                // Add message to both the conversation log and recent messages display
-                // The addMessage method will also add it to recent messages when sender is 'ai'
-                window.uiController.addMessage(completeMessage, 'ai');
-            }
-            
-            console.log(`[ENHANCE] Flushed complete message: "${completeMessage.substring(0, 100)}..."`);
-            
-            // Clear buffer
-            this.messageBuffer = '';
-        }
-        
-        // Clear timeout
-        if (this.messageTimeout) {
-            clearTimeout(this.messageTimeout);
-            this.messageTimeout = null;
-        }
-    };
-    
-    // Enhanced text message sending (PRESERVE existing WebSocket logic)
+    // FIXED: Text message sending - compatible with turn-based system
     originalClient.sendTextMessage = function(text) {
         // CRITICAL: Use existing connection validation logic
         if (!this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
@@ -203,33 +115,19 @@ window.enhanceGeminiClient = function(originalClient) {
         
         // CRITICAL: Use existing WebSocket sending logic
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            // Create the message object
             const messageObj = { 
                 type: 'text_input', 
                 text: text.trim(), 
                 timestamp: Date.now() 
             };
             
-            // Convert to JSON string
-            const messageJson = JSON.stringify(messageObj);
-            
-            // Add detailed debug logging
             console.log('[ENHANCE] WebSocket message being sent:', messageObj);
-            console.log('[ENHANCE] WebSocket readyState:', this.state.ws.readyState);
-            console.log('[ENHANCE] WebSocket JSON payload:', messageJson);
             
             // Send the message
-            this.state.ws.send(messageJson);
+            this.state.ws.send(JSON.stringify(messageObj));
             
-            // Add to UI immediately for user
-            if (window.uiController) {
-                window.uiController.addMessage(text, 'user');
-            }
-            
-            // Add a debug message to the UI
-            if (window.uiController) {
-                window.uiController.addMessage(`[DEBUG] Text message sent to backend: "${text}"`, 'system');
-            }
+            // FIXED: Don't add to conversation log immediately
+            // The backend will send conversation_turn_complete with proper ordering
             
             console.log('[ENHANCE] Text message sent successfully');
             return true;
@@ -239,7 +137,7 @@ window.enhanceGeminiClient = function(originalClient) {
         }
     };
     
-    // NEW: Voice session toggle while keeping text active
+    // Voice session toggle while keeping text active
     originalClient.toggleVoiceSession = function() {
         if (!this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
             console.log('[ENHANCE] Cannot toggle voice: not connected');
@@ -269,22 +167,16 @@ window.enhanceGeminiClient = function(originalClient) {
         }
     };
     
-    // Send user information to backend
+    // Enhanced user info handling
     originalClient.sendUserInfo = function() {
         if (!this.userData) {
             console.log('[ENHANCE] No user data to send');
-            if (window.uiController) {
-                window.uiController.addMessage('[DEBUG] No user data to send to backend', 'system');
-            }
-            return;
+            return false;
         }
         
         if (!this.state.isConnectedToWebSocket) {
             console.log('[ENHANCE] Cannot send user info: not connected to WebSocket');
-            if (window.uiController) {
-                window.uiController.addMessage('[DEBUG] Cannot send user info: not connected to WebSocket', 'system');
-            }
-            return;
+            return false;
         }
         
         console.log(`[ENHANCE] Sending user info to backend:`, this.userData);
@@ -299,9 +191,6 @@ window.enhanceGeminiClient = function(originalClient) {
                 };
                 
                 console.log('[ENHANCE] Sending WebSocket message:', message);
-                if (window.uiController) {
-                    window.uiController.addMessage(`[DEBUG] Sending user info: ${this.userData.name}, ${this.userData.email}`, 'system');
-                }
                 
                 this.state.ws.send(JSON.stringify(message));
                 
@@ -315,19 +204,10 @@ window.enhanceGeminiClient = function(originalClient) {
                 return true;
             } catch (error) {
                 console.error('[ENHANCE] Error sending user info:', error);
-                if (window.uiController) {
-                    window.uiController.addMessage(`[DEBUG] Error sending user info: ${error.message}`, 'system');
-                }
                 return false;
             }
         } else {
-            console.log('[ENHANCE] WebSocket not ready for sending user info', {
-                wsExists: !!this.state.ws,
-                readyState: this.state.ws ? this.state.ws.readyState : 'N/A'
-            });
-            if (window.uiController) {
-                window.uiController.addMessage('[DEBUG] WebSocket not ready for sending user info', 'system');
-            }
+            console.log('[ENHANCE] WebSocket not ready for sending user info');
             return false;
         }
     };
@@ -349,28 +229,34 @@ window.enhanceGeminiClient = function(originalClient) {
             console.log('[ENHANCE] No user data found, showing form');
             
             // Create and show user form
-            const userForm = new window.UserForm();
-            userForm.onSubmit((formData) => {
-                console.log('[ENHANCE] User form submitted:', formData);
-                
-                // Store user data for system prompt
-                this.userData = formData;
-                
-                // Call original connect method
-                if (originalConnect) {
-                    originalConnect.call(this);
-                }
-            });
-            userForm.show();
-            return;
+            if (window.UserForm) {
+                const userForm = new window.UserForm();
+                userForm.onSubmit((formData) => {
+                    console.log('[ENHANCE] User form submitted:', formData);
+                    
+                    // Store user data for system prompt
+                    this.userData = formData;
+                    
+                    // Store in localStorage for future sessions
+                    localStorage.setItem('user_name', formData.name);
+                    localStorage.setItem('user_email', formData.email);
+                    
+                    // Call original connect method
+                    if (originalConnect) {
+                        originalConnect.call(this);
+                    }
+                });
+                userForm.show();
+                return;
+            }
+        } else {
+            // We already have user data
+            this.userData = {
+                name: userName,
+                email: userEmail
+            };
+            console.log('[ENHANCE] Using existing user data:', this.userData);
         }
-        
-        // We already have user data
-        this.userData = {
-            name: userName,
-            email: userEmail
-        };
-        console.log('[ENHANCE] Using existing user data:', this.userData);
         
         // Call original connect method
         if (originalConnect) {
@@ -380,9 +266,6 @@ window.enhanceGeminiClient = function(originalClient) {
     
     originalClient.disconnect = function(reason = 'User disconnected') {
         console.log(`[ENHANCE] Disconnect method called: ${reason}`);
-        
-        // Flush any remaining messages
-        this.flushMessageBuffer();
         
         if (window.uiController) {
             window.uiController.setConnectionState('disconnected');
@@ -399,9 +282,9 @@ window.enhanceGeminiClient = function(originalClient) {
         console.log('[ENHANCE] Starting voice conversation (text remains available)');
         
         if (window.uiController) {
-            window.uiController.updateInteractionButton('recording');
+            window.uiController.updateInteractionButton('listening');
             window.uiController.setUserSpeaking(true);
-            window.uiController.updateStatusBanner('Listening... Voice + text both active', 'recording');
+            window.uiController.updateStatusBanner('Listening... Voice + text both active', 'connected');
         }
         
         // Call original method
@@ -448,10 +331,132 @@ window.enhanceGeminiClient = function(originalClient) {
     // Clear recent messages
     originalClient.clearRecentMessages = function() {
         this.messageHistory = [];
-        if (window.uiController) {
+        if (window.uiController && window.uiController.clearRecentMessages) {
             window.uiController.clearRecentMessages();
         }
     };
     
-    console.log('[ENHANCE] Client enhancement complete');
+    // Enhanced error handling
+    originalClient.handleCriticalError = function(context, error) {
+        console.error(`[ENHANCE] Critical error in ${context}:`, error);
+        
+        if (window.uiController) {
+            window.uiController.updateStatusBanner(`Error: ${error.message}`, 'error');
+        }
+        
+        // Call original error handler if it exists
+        if (originalClient.handleCriticalError) {
+            return originalClient.handleCriticalError.call(this, context, error);
+        }
+    };
+    
+    // Enhanced permission handling
+    originalClient.handlePermissionChange = function(state) {
+        console.log(`[ENHANCE] Permission state changed to: ${state}`);
+        
+        if (window.uiController) {
+            const message = state === 'granted' ? 'Microphone access granted' : 
+                           state === 'denied' ? 'Microphone access denied' : 
+                           'Requesting microphone access...';
+            
+            const statusType = state === 'granted' ? 'success' : 
+                              state === 'denied' ? 'error' : 'warning';
+            
+            window.uiController.updateStatusBanner(message, statusType);
+        }
+        
+        // Call original permission handler if it exists
+        if (originalClient.handlePermissionChange) {
+            return originalClient.handlePermissionChange.call(this, state);
+        }
+    };
+    
+    // Enhanced logging
+    originalClient.log = function(message, isError = false, data = null) {
+        const prefix = '[ENHANCED_CLIENT]';
+        
+        if (this.config && this.config.debug || isError) {
+            const logMethod = isError ? console.error : console.log;
+            if (data !== null && data !== undefined) {
+                logMethod(prefix, message, data);
+            } else {
+                logMethod(prefix, message);
+            }
+        }
+        
+        // Call original log method if it exists
+        if (originalClient.log && originalClient.log !== this.log) {
+            return originalClient.log.call(this, message, isError, data);
+        }
+    };
+    
+    // Health monitoring enhancement
+    originalClient.setupHealthMonitoring = function() {
+        console.log('[ENHANCE] Setting up enhanced health monitoring');
+        
+        // Call original health monitoring setup
+        if (originalClient.setupHealthMonitoring) {
+            originalClient.setupHealthMonitoring.call(this);
+        }
+        
+        // Add enhanced health check UI updates
+        const healthCheckInterval = setInterval(() => {
+            if (this.state && this.state.isConnectedToWebSocket && 
+                this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
+                
+                // Visual indication of healthy connection
+                if (window.uiController) {
+                    // Could add subtle health indicators here if needed
+                }
+            }
+        }, 30000); // Check every 30 seconds
+        
+        // Store interval for cleanup
+        if (!this.enhancementIntervals) {
+            this.enhancementIntervals = [];
+        }
+        this.enhancementIntervals.push(healthCheckInterval);
+    };
+    
+    // Enhanced disposal
+    originalClient.dispose = function() {
+        console.log('[ENHANCE] Disposing enhanced client...');
+        
+        // Clean up enhancement intervals
+        if (this.enhancementIntervals) {
+            this.enhancementIntervals.forEach(interval => {
+                clearInterval(interval);
+            });
+            this.enhancementIntervals = [];
+        }
+        
+        // Clear enhancement data
+        this.messageHistory = [];
+        
+        // Call original dispose method
+        if (originalClient.dispose) {
+            return originalClient.dispose.call(this);
+        }
+    };
+    
+    // Add helper methods for external access
+    originalClient.getEnhancementVersion = function() {
+        return '5.0.0-turn-based-compatible';
+    };
+    
+    originalClient.getCapabilities = function() {
+        return {
+            voiceChat: this.isConnected(),
+            textChat: this.isTextEnabled(),
+            voiceActive: this.isVoiceActive(),
+            userFormIntegration: true,
+            turnBasedMessaging: true,
+            functionCalling: true
+        };
+    };
+    
+    console.log('[ENHANCE] Client enhancement v5.0 complete - Turn-based compatible');
+    console.log('[ENHANCE] Available methods:', Object.getOwnPropertyNames(originalClient).filter(name => 
+        typeof originalClient[name] === 'function' && name.startsWith('is') || name.includes('toggle') || name.includes('get')
+    ));
 };
