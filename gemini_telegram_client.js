@@ -341,13 +341,23 @@ class GeminiTelegramClient {
         if (!this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
             this.log('Cannot send text message: not fully connected.', true);
             if(window.uiController) window.uiController.addMessage('Error: Not connected. Cannot send text.', 'system');
-            return;
+            return false;
         }
+        
         this.log(`Sending text message to backend: "${text}"`);
+        
+        // Send to backend - don't add to conversation log yet
+        // It will be added via conversation_turn_complete message
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ type: 'text_input', text: text, timestamp: Date.now() }));
+            this.state.ws.send(JSON.stringify({ 
+                type: 'text_input', 
+                text: text, 
+                timestamp: Date.now() 
+            }));
+            return true;
         } else {
             this.log('WebSocket not open, cannot send text message.', true);
+            return false;
         }
     }
 
@@ -503,7 +513,13 @@ class GeminiTelegramClient {
                     }
                     break;
                 case 'text_response': 
-                    if (window.uiController) window.uiController.addMessage(message.text, 'ai', message.isHTML || false); 
+                    // For live transcription display only - don't add to conversation log
+                    if (window.uiController) {
+                        window.uiController.updateOutputTranscription(message.text, true, true); // append mode
+                    }
+                    break;
+                case 'conversation_turn_complete':
+                    this.handleConversationTurnComplete(message.turn);
                     break;
                 case 'error': this.handleServerError(message); break;
                 case 'input_transcription': this.handleInputTranscription(message); break;
@@ -619,6 +635,33 @@ class GeminiTelegramClient {
         }
     }
     
+    // NEW: Handle complete conversation turns with guaranteed correct ordering
+    handleConversationTurnComplete(turn) {
+        this.log(`Received complete conversation turn ${turn.turnId}:`, false, {
+            userMessage: turn.userMessage,
+            aiResponse: turn.aiResponse?.substring(0, 50) + '...',
+            method: turn.userMethod
+        });
+        
+        if (!window.uiController) {
+            this.log('UI Controller not available', true);
+            return;
+        }
+        
+        // Add user message first (if exists)
+        if (turn.userMessage && turn.userMessage.trim()) {
+            const isVoiceMessage = turn.userMethod === 'voice';
+            window.uiController.addMessage(turn.userMessage, 'user', false, isVoiceMessage);
+            this.log(`Added user message (${turn.userMethod}): "${turn.userMessage}"`);
+        }
+        
+        // Add AI response second (if exists)
+        if (turn.aiResponse && turn.aiResponse.trim()) {
+            window.uiController.addMessage(turn.aiResponse, 'ai', false, false);
+            this.log(`Added AI response: "${turn.aiResponse.substring(0, 50)}..."`);
+        }
+    }
+    
     handleInputTranscription(message) {
         if (message.text) {
             this.state.transcriptions.input = message.text;
@@ -628,18 +671,12 @@ class GeminiTelegramClient {
                 window.uiController.updateInputTranscription(message.text); 
             }
             
-            // CRITICAL FIX: Check if this is a final transcription
-            // If the message indicates this is final/complete, add to conversation log
+            // MODIFIED: Don't add final transcriptions to conversation log here
+            // They'll be added via conversation_turn_complete message
             if (message.isFinal || message.final || message.complete) {
                 this.log(`Final user transcription received: "${message.text}"`);
                 
-                // Add the final transcription to conversation log WITH VOICE INDICATOR
-                if (window.uiController) {
-                    // Pass isVoiceMessage=true to mark this as a voice message
-                    window.uiController.addMessage(message.text, 'user', false, true);
-                }
-                
-                // Clear the temporary transcription since it's now in the conversation log
+                // Clear the temporary transcription since it will be in the conversation log
                 setTimeout(() => {
                     if (window.uiController) {
                         window.uiController.updateInputTranscription('', false);
