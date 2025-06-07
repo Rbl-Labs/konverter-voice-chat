@@ -1,7 +1,6 @@
 /**
- * Consolidated Gemini Telegram Client with Voice+Text Support
- * Version: 4.0.0 - Merged enhancement features, removed code overlaps and race conditions
- * Features: Voice chat, Text chat, Function execution feedback, Enhanced error handling
+ * Modern Gemini Telegram Client with enhanced mobile compatibility and error handling
+ * Version: 3.3.0 (Integrates PCMStreamPlayer for AI audio playback)
  */
 import { AdvancedAudioRecorder } from './advanced_audio_recorder.js';
 import { PCMStreamPlayer } from './pcm_stream_player.js';
@@ -43,12 +42,6 @@ class GeminiTelegramClient {
                 transcriptions: { input: '', output: '' },
                 aiPlayedAudioThisTurn: false 
             };
-            
-            // Enhanced features from client enhancement
-            this.isTextChatEnabled = true;
-            this.messageHistory = [];
-            this.maxDisplayMessages = 3;
-            this.userData = null;
             
             this.advancedRecorder = null;
             this.pcmPlayer = null; 
@@ -207,57 +200,12 @@ class GeminiTelegramClient {
                 const sessionData = await this.fetchSessionConfigWithRetry();
                 this.processSessionData(sessionData);
             }
-            
-            // Connect to WebSocket but don't connect to Gemini yet
             await this.connectToWebSocket();
-            
-            // Check if we have user data in localStorage
-            const userName = localStorage.getItem('user_name');
-            const userEmail = localStorage.getItem('user_email');
-            
-            if (userName || userEmail) {
-                this.userData = {
-                    name: userName,
-                    email: userEmail
-                };
-                this.log('Found user data in localStorage:', false, this.userData);
-            }
-            
-            // Show user form if no data is available
-            if (!this.userData && window.UserForm) {
-                this.log('No user data found, showing form');
-                this.showUserForm();
-            }
         } catch (error) {
             this.log('Connection process failed', true, error);
             if (window.uiController) window.uiController.setConnectionState('error');
             this.state.isConnecting = false;
         }
-    }
-    
-    showUserForm() {
-        if (!window.UserForm) {
-            this.log('UserForm not available', true);
-            return;
-        }
-        
-        const userForm = new window.UserForm();
-        userForm.onSubmit((formData) => {
-            this.log('User form submitted:', false, formData);
-            
-            // Store user data
-            this.userData = formData;
-            
-            // Send user data to backend
-            this.sendUserInfo();
-            
-            // Update UI
-            if (window.uiController) {
-                window.uiController.updateStatusBanner(`Connected as ${formData.name}. Click Play to start conversation.`, 'connected');
-                window.uiController.updateInteractionButton('ready_to_play');
-            }
-        });
-        userForm.show();
     }
 
     disconnect(reason = 'User disconnected') {
@@ -288,16 +236,6 @@ class GeminiTelegramClient {
         this.log('Starting conversation with AdvancedAudioRecorder (Play pressed)');
         this.state.isConversationPaused = false;
         
-        // IMPORTANT: Send a resume notification to the backend to restore session context
-        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ 
-                type: 'conversation_resumed', 
-                timestamp: Date.now(),
-                userData: this.userData // Include user data to restore context
-            }));
-            this.log('Sent conversation_resumed message to backend');
-        }
-        
         try {
             if (!this.advancedRecorder.isRecording) {
                 this.log('AdvancedAudioRecorder not recording, starting it...');
@@ -326,17 +264,6 @@ class GeminiTelegramClient {
             this.pcmPlayer.stopPlayback(); 
             this.log('AI Playback stopped due to user pause.');
         }
-        
-        // IMPORTANT: Send a pause notification to the backend to maintain session context
-        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ 
-                type: 'conversation_paused', 
-                timestamp: Date.now(),
-                userData: this.userData // Include user data to maintain context
-            }));
-            this.log('Sent conversation_paused message to backend');
-        }
-        
         if (window.uiController) {
             window.uiController.updateInteractionButton('ready_to_play');
             window.uiController.setUserSpeaking(false);
@@ -348,65 +275,16 @@ class GeminiTelegramClient {
         if (!this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
             this.log('Cannot send text message: not fully connected.', true);
             if(window.uiController) window.uiController.addMessage('Error: Not connected. Cannot send text.', 'system');
-            return false;
+            return;
         }
-        
         this.log(`Sending text message to backend: "${text}"`);
-        
-        // Send to backend - don't add to conversation log yet
-        // It will be added via conversation_turn_complete message
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ 
-                type: 'text_input', 
-                text: text, 
-                timestamp: Date.now() 
-            }));
-            return true;
+            this.state.ws.send(JSON.stringify({ type: 'text_input', text: text, timestamp: Date.now() }));
         } else {
             this.log('WebSocket not open, cannot send text message.', true);
-            return false;
         }
     }
 
-    // Add this method to handle Play button
-    handlePlayButtonPress() {
-        if (!this.state.isConnectedToWebSocket) {
-            this.log('Cannot start: not connected to WebSocket', true);
-            return;
-        }
-        
-        if (!this.userData) {
-            this.log('Cannot start: no user data available', true);
-            if (window.uiController) {
-                window.uiController.updateStatusBanner('Please fill out the form first', 'error');
-            }
-            return;
-        }
-        
-        // First send user data to backend
-        const userInfoSent = this.sendUserInfo();
-        
-        if (!userInfoSent) {
-            this.log('Failed to send user info to backend', true);
-            if (window.uiController) {
-                window.uiController.updateStatusBanner('Failed to send user info', 'error');
-            }
-            return;
-        }
-        
-        // Wait a moment to ensure user info is processed
-        setTimeout(() => {
-            // Then connect to Gemini with user data
-            if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-                this.state.ws.send(JSON.stringify({ 
-                    type: 'connect_gemini_with_user_data', 
-                    timestamp: Date.now() 
-                }));
-                this.log('Sent connect_gemini_with_user_data message');
-            }
-        }, 500); // 500ms delay to ensure user info is processed
-    }
-    
     async connectToWebSocket() {
         if (this.state.connectionAttempts >= this.state.maxConnectionAttempts && this.state.maxConnectionAttempts > 0) {
             if (window.uiController) window.uiController.setConnectionState('error');
@@ -520,26 +398,7 @@ class GeminiTelegramClient {
                     }
                     break;
                 case 'text_response': 
-                    // For live transcription display only - don't add to conversation log
-                    if (window.uiController) {
-                        window.uiController.updateOutputTranscription(message.text, true, true); // append mode
-                    }
-                    break;
-                case 'conversation_turn_complete':
-                    this.handleConversationTurnComplete(message.turn);
-                    break;
-                case 'function_executing':
-                    this.log(`Function executing: ${message.functionName}`);
-                    if (window.uiController) {
-                        window.uiController.updateStatusBanner(`Executing: ${message.functionName}`, 'processing');
-                    }
-                    break;
-                case 'function_completed':
-                    this.log(`Function completed: ${message.functionName}, success: ${message.success}`);
-                    if (window.uiController) {
-                        const status = message.success ? '✅' : '❌';
-                        window.uiController.updateStatusBanner(`${status} ${message.functionName}`, 'info');
-                    }
+                    if (window.uiController) window.uiController.addMessage(message.text, 'ai', message.isHTML || false); 
                     break;
                 case 'error': this.handleServerError(message); break;
                 case 'input_transcription': this.handleInputTranscription(message); break;
@@ -557,9 +416,6 @@ class GeminiTelegramClient {
                 case 'debug_log': 
                     this.log(`[Backend Debug] ${message.message || ''}`, message.isError || message.level === 'ERROR', message.data);
                     break;
-                case 'websocket_ready_ack':
-                    this.log('WebSocket connection acknowledged by backend');
-                    break;
                 default:
                     this.log(`Unknown message type: ${message.type}`, true, message);
             }
@@ -568,63 +424,9 @@ class GeminiTelegramClient {
     
     handleSessionInitialized() {
         this.log('Backend confirmed session initialized.');
-        
-        // Send websocket_ready message instead of connect_gemini
         if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            this.state.ws.send(JSON.stringify({ type: 'websocket_ready' }));
-            this.log('Sent websocket_ready message to backend');
-            
-            // Update UI to show form or ready state
-            if (window.uiController) {
-                if (this.userData) {
-                    window.uiController.updateStatusBanner(`Connected as ${this.userData.name}. Click Play to start conversation.`, 'connected');
-                    window.uiController.setConnectionState('connected');
-                } else {
-                    window.uiController.updateStatusBanner('Please fill out the form to continue.', 'info');
-                }
-            }
-        }
-    }
-    
-    // Send user information to backend
-    sendUserInfo() {
-        if (!this.userData) {
-            this.log('No user data to send');
-            return false;
-        }
-        
-        if (!this.state.isConnectedToWebSocket) {
-            this.log('Cannot send user info: not connected to WebSocket');
-            return false;
-        }
-        
-        this.log('Sending user info to backend:', false, this.userData);
-        
-        // Send user info to backend
-        if (this.state.ws && this.state.ws.readyState === WebSocket.OPEN) {
-            try {
-                const message = { 
-                    type: 'user_info_update', 
-                    userData: this.userData, 
-                    timestamp: Date.now() 
-                };
-                
-                this.log('Sending WebSocket message:', false, message);
-                
-                this.state.ws.send(JSON.stringify(message));
-                
-                this.log('User info sent to backend');
-                return true;
-            } catch (error) {
-                this.log('Error sending user info:', true, error);
-                return false;
-            }
-        } else {
-            this.log('WebSocket not ready for sending user info', false, {
-                wsExists: !!this.state.ws,
-                readyState: this.state.ws ? this.state.ws.readyState : 'N/A'
-            });
-            return false;
+            this.state.ws.send(JSON.stringify({ type: 'connect_gemini' }));
+            this.log('Sent connect_gemini message to backend');
         }
     }
     
@@ -632,16 +434,8 @@ class GeminiTelegramClient {
         this.log('Backend confirmed Gemini connected successfully');
         this.state.isGeminiSessionActive = true;
         this.state.isConversationPaused = true; 
-        
         if (window.uiController) {
             window.uiController.setConnectionState('connected');
-            
-            // Update status banner with user name if available
-            if (this.userData && this.userData.name) {
-                window.uiController.updateStatusBanner(`Connected as ${this.userData.name}`, 'connected');
-            } else {
-                window.uiController.updateStatusBanner('Connected', 'connected');
-            }
         }
     }
     
@@ -655,53 +449,11 @@ class GeminiTelegramClient {
         }
     }
     
-    // NEW: Handle complete conversation turns with guaranteed correct ordering
-    handleConversationTurnComplete(turn) {
-        this.log(`Received complete conversation turn ${turn.turnId}:`, false, {
-            userMessage: turn.userMessage,
-            aiResponse: turn.aiResponse?.substring(0, 50) + '...',
-            method: turn.userMethod
-        });
-        
-        if (!window.uiController) {
-            this.log('UI Controller not available', true);
-            return;
-        }
-        
-        // Add user message first (if exists)
-        if (turn.userMessage && turn.userMessage.trim()) {
-            const isVoiceMessage = turn.userMethod === 'voice';
-            window.uiController.addMessage(turn.userMessage, 'user', false, isVoiceMessage);
-            this.log(`Added user message (${turn.userMethod}): "${turn.userMessage}"`);
-        }
-        
-        // Add AI response second (if exists)
-        if (turn.aiResponse && turn.aiResponse.trim()) {
-            window.uiController.addMessage(turn.aiResponse, 'ai', false, false);
-            this.log(`Added AI response: "${turn.aiResponse.substring(0, 50)}..."`);
-        }
-    }
-    
     handleInputTranscription(message) {
         if (message.text) {
             this.state.transcriptions.input = message.text;
-            
-            // Update the temporary transcription display
             if (window.uiController) { 
                 window.uiController.updateInputTranscription(message.text); 
-            }
-            
-            // MODIFIED: Don't add final transcriptions to conversation log here
-            // They'll be added via conversation_turn_complete message
-            if (message.isFinal || message.final || message.complete) {
-                this.log(`Final user transcription received: "${message.text}"`);
-                
-                // Clear the temporary transcription since it will be in the conversation log
-                setTimeout(() => {
-                    if (window.uiController) {
-                        window.uiController.updateInputTranscription('', false);
-                    }
-                }, 1000); // Give user 1 second to see the final transcription
             }
         }
     }
@@ -715,19 +467,12 @@ class GeminiTelegramClient {
     
     handleTurnComplete() {
         this.log('Turn complete received from backend'); 
-        
-        // REMOVED: The fallback transcription logic to prevent duplication
-        // The backend now properly sends final transcriptions with isFinal=true
-        
-        // Clear transcription state
         this.state.transcriptions.input = ''; 
         this.state.transcriptions.output = '';
-        
         if (window.uiController) {
             window.uiController.clearTranscriptions();
         }
 
-        // Continue with existing voice session management logic
         if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording) {
             if (this.advancedRecorder.isSuspended && !this.state.aiPlayedAudioThisTurn) {
                  this.log('Turn complete (no AI audio this turn or AI cut short), resuming user mic.');
@@ -867,35 +612,6 @@ class GeminiTelegramClient {
     
     safeExecute(fn) { try { return fn(); } catch (error) { this.log(`Safe execution failed: ${error.message}`, true, error); }}
     
-    // Toggle voice session while keeping text chat active
-    toggleVoiceSession() {
-        if (!this.state.isConnectedToWebSocket || !this.state.isGeminiSessionActive) {
-            this.log('Cannot toggle voice: not connected');
-            if (window.uiController) {
-                window.uiController.updateStatusBanner('Not connected', 'error');
-            }
-            return false;
-        }
-        
-        if (this.state.isConversationPaused) {
-            // Start voice (text remains active)
-            this.log('Starting voice session (text remains active)');
-            this.startConversation();
-            if (window.uiController) {
-                window.uiController.updateStatusBanner('Voice active • Text also available', 'connected');
-            }
-            return true;
-        } else {
-            // Pause voice (text remains active)
-            this.log('Pausing voice session (text remains active)');
-            this.pauseConversation();
-            if (window.uiController) {
-                window.uiController.updateStatusBanner('Voice paused • Text still active', 'connected');
-            }
-            return false;
-        }
-    }
-
     dispose() {
         this.log('Disposing client...');
         [this.state.sessionInitTimer, this.state.reconnectTimer, this.state.healthCheckTimer].forEach(t => t && clearTimeout(t));

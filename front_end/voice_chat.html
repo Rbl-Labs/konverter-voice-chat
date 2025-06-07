@@ -159,11 +159,7 @@
                 console.log('[INIT] Loading Gemini Telegram Client...');
                 await loadScript('./gemini_telegram_client.js', 15000, 'module');
                 
-                // 5. Load Enhancement Client
-                console.log('[INIT] Loading Client Enhancements...');
-                await loadScript('./gemini_telegram_client_enhancement.js', 15000);
-                
-                // 6. Initialize the system
+                // 5. Initialize the system (enhancement features now integrated)
                 initializeSystem();
                 
             } catch (error) {
@@ -219,12 +215,6 @@
                 if (!window.geminiClient && window.GeminiTelegramClient) {
                     console.log('[INIT] Initializing original GeminiTelegramClient...');
                     window.geminiClient = new window.GeminiTelegramClient();
-                    
-                    // 5. Apply enhancements after original client is ready
-                    if (window.enhanceGeminiClient) {
-                        window.enhanceGeminiClient(window.geminiClient);
-                        console.log('[INIT] Client enhancements applied');
-                    }
                     
                     console.log('[INIT] System initialization complete');
                 } else {
