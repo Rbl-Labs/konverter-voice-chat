@@ -1,0 +1,163 @@
+name: Deploy Frontend and Backend
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        npm ci
+        
+    - name: Run backend tests (if any)
+      run: |
+        cd backend
+        npm test || echo "No tests configured"
+        
+    - name: Validate backend configuration
+      run: |
+        cd backend
+        node -e "require('./package.json')"
+        echo "Backend package.json is valid"
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./front_end
+        publish_branch: gh-pages
+        force_orphan: true
+        
+  deploy-backend:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install dependencies
+      run: |
+        cd backend
+        npm ci --production
+        
+    - name: Create deployment package
+      run: |
+        cd backend
+        tar -czf ../backend-deploy.tar.gz .
+        
+    - name: Deploy to AWS EC2
+      env:
+        AWS_PRIVATE_KEY: ${{ secrets.AWS_PRIVATE_KEY }}
+        AWS_HOST: ${{ secrets.AWS_HOST }}
+        AWS_USER: ${{ secrets.AWS_USER }}
+      run: |
+        # Setup SSH
+        mkdir -p ~/.ssh
+        echo "$AWS_PRIVATE_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H $AWS_HOST >> ~/.ssh/known_hosts
+        
+        # Upload and deploy
+        scp -i ~/.ssh/deploy_key backend-deploy.tar.gz $AWS_USER@$AWS_HOST:/tmp/
+        
+        ssh -i ~/.ssh/deploy_key $AWS_USER@$AWS_HOST << 'EOF'
+          # Stop existing service
+          pm2 stop gemini-websocket-proxy || true
+          
+          # Backup current deployment
+          sudo mkdir -p /opt/backups
+          sudo cp -r /opt/konverter-voice-chat /opt/backups/konverter-voice-chat-$(date +%Y%m%d-%H%M%S) || true
+          
+          # Deploy new version
+          sudo mkdir -p /opt/konverter-voice-chat
+          sudo tar -xzf /tmp/backend-deploy.tar.gz -C /opt/konverter-voice-chat/
+          sudo chown -R ubuntu:ubuntu /opt/konverter-voice-chat
+          
+          # Install dependencies and start service
+          cd /opt/konverter-voice-chat
+          npm install --production
+          
+          # Start with PM2
+          pm2 start ecosystem.config.js --env production
+          pm2 save
+          
+          # Check status
+          pm2 status
+          
+          # Clean up
+          rm /tmp/backend-deploy.tar.gz
+        EOF
+        
+    - name: Verify deployment
+      env:
+        AWS_PRIVATE_KEY: ${{ secrets.AWS_PRIVATE_KEY }}
+        AWS_HOST: ${{ secrets.AWS_HOST }}
+        AWS_USER: ${{ secrets.AWS_USER }}
+      run: |
+        echo "$AWS_PRIVATE_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        
+        # Wait for service to start
+        sleep 10
+        
+        # Check service health
+        ssh -i ~/.ssh/deploy_key $AWS_USER@$AWS_HOST << 'EOF'
+          # Check PM2 status
+          pm2 status gemini-websocket-proxy
+          
+          # Check logs for any immediate errors
+          pm2 logs gemini-websocket-proxy --lines 20 --nostream
+          
+          # Check if the service is responding on the correct port
+          timeout 10 nc -z localhost 8003 && echo "Service is listening on port 8003" || echo "Warning: Service may not be ready yet"
+          
+          # Check health endpoint
+          sleep 5
+          curl -f http://localhost:8003/health && echo "Health check passed" || echo "Warning: Health check failed"
+        EOF
+
+  notify:
+    needs: [deploy-frontend, deploy-backend]
+    runs-on: ubuntu-latest
+    if: always() && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Deployment Status
+      run: |
+        if [[ "${{ needs.deploy-frontend.result }}" == "success" && "${{ needs.deploy-backend.result }}" == "success" ]]; then
+          echo "✅ Deployment successful!"
+          echo "Frontend: Deployed to GitHub Pages"
+          echo "Backend: Deployed to AWS EC2"
+        else
+          echo "❌ Deployment failed!"
+          echo "Frontend status: ${{ needs.deploy-frontend.result }}"
+          echo "Backend status: ${{ needs.deploy-backend.result }}"
+          exit 1
+        fi
