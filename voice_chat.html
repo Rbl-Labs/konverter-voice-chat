@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Konverter.ai Voice Assistant</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Updated Styles -->
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <!-- Voice Interface -->
+    <div class="voice-interaction" id="voiceInterface">
+        <div class="header">
+            <div class="konverter-logo">
+                <img src="./assets/konverter_logo_400_65.png" alt="Konverter.ai" class="logo-image">
+            </div>
+            <h1 class="konverter-title">Speak to Chloe, our Investment Manager</h1>
+            
+            <!-- Control buttons -->
+            <button class="debug-button" id="debugBtn" onclick="showDebugInfo()" title="Debug Info">🛠️</button>
+        </div>
+        
+        <!-- Status Display -->
+        <div class="status" id="status">Voice mode ready</div>
+        
+        <!-- Circles container with exact positioning -->
+        <div class="circles-container">
+            <!-- Agent Circle (Left) - Chloe -->
+            <div class="circle agent-circle" id="agentCircle">
+                <div class="wave agent-wave wave-1"></div>
+                <div class="wave agent-wave wave-2"></div>
+                <div class="wave agent-wave wave-3"></div>
+                <div class="avatar-container">
+                    <img src="./assets/chloe_avatar.png" alt="Agent Avatar" class="agent-avatar">
+                </div>
+            </div>
+            
+            <!-- Play Button Circle (Right) -->
+            <div class="circle play-circle" id="userInteractionCircle">
+                <div class="wave user-wave wave-1"></div>
+                <div class="wave user-wave wave-2"></div>
+                <div class="wave user-wave wave-3"></div>
+                <div class="play-button state-play" id="interactionIcon">
+                    <!-- Green triangle is now created with CSS -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Live Transcription -->
+        <div class="live-transcription">
+            <div class="transcription" id="inputTranscription"></div>
+            <div class="transcription" id="outputTranscription"></div>
+        </div>
+        
+        <!-- Recent Messages (3 most recent AI messages full-screen) -->
+        <div class="recent-messages" id="recentMessages">
+            <!-- Messages will be added here by JavaScript -->
+        </div>
+        
+        <!-- Chat Toggle Button - Smaller and positioned on right -->
+        <div class="chat-toggle" id="chatToggle" onclick="toggleChatPanel()">
+            <span class="chat-icon">💬</span> Chat
+        </div>
+        
+        <!-- Connect Button -->
+        <div class="connect-button-container">
+            <button class="connect-button" id="connectButton" onclick="handleConnect()">CONNECT</button>
+        </div>
+    </div>
+
+    <!-- Chat Panel (Hidden by default) -->
+    <div class="chat-panel" id="transcriptionPanel">
+        <div class="chat-header">
+            <h2>Conversation</h2>
+            <button class="close-button" id="closeTranscriptionPanelBtn" onclick="toggleChatPanel(false)">×</button>
+        </div>
+        <div class="chat-messages" id="conversationLog">
+            <!-- Messages will be added here by JavaScript -->
+        </div>
+        <div class="chat-input">
+            <input type="text" placeholder="Type a message..." id="chatTextInput" onkeypress="handleChatKeyPress(event)">
+            <button class="send-button" id="sendTextButton" onclick="sendTextMessage()">
+                <span>➤</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Session info -->
+    <div class="session-info" id="sessionInfo">Session: Ready</div>
+
+    <!-- Debug overlay -->
+    <div class="debug-overlay" id="debugOverlay">
+        <div class="debug-content" id="debugContent"></div>
+        <button class="debug-close" onclick="hideDebugInfo()">Close Debug</button>
+    </div>
+
+    <!-- Load scripts in correct order using async/await approach -->
+    <script>
+        // Helper function to load scripts with proper error handling
+        async function loadScript(src, timeout = 10000, type = 'text/javascript') {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                const timeoutId = setTimeout(() => { 
+                    script.remove(); 
+                    reject(new Error(`Script loading timeout: ${src}`)); 
+                }, timeout);
+                
+                script.onload = () => { 
+                    clearTimeout(timeoutId); 
+                    resolve(); 
+                };
+                
+                script.onerror = (e) => { 
+                    clearTimeout(timeoutId); 
+                    script.remove(); 
+                    reject(new Error(`Script loading failed: ${src}`)); 
+                };
+                
+                script.src = `${src}?v=${Date.now()}`; 
+                script.type = type; // Use the provided type
+                document.head.appendChild(script);
+            });
+        }
+
+        // Initialize the application
+        async function initializeApp() {
+            try {
+                console.log('[INIT] Starting app initialization...');
+                
+                // 1. Load core audio components
+                console.log('[INIT] Loading PCM Stream Player...');
+                await loadScript('./pcm_stream_player.js', 15000, 'module');
+                
+                console.log('[INIT] Loading Advanced Audio Recorder...');
+                await loadScript('./advanced_audio_recorder.js', 15000, 'module');
+                
+                // Temporarily commenting out direct loading of AudioProcessorWorklet
+                // This should be loaded only via AudioWorklet API in AdvancedAudioRecorder
+                // console.log('[INIT] Loading Audio Processor Worklet...');
+                // await loadScript('./audio_processor_worklet.js', 15000);
+                
+                console.log('[INIT] Loading Telegram Audio Bridge...');
+                await loadScript('./telegram_audio_bridge.js', 15000);
+                
+                // 2. Load UI Controller
+                console.log('[INIT] Loading UI Controller...');
+                await loadScript('./ui_controller.js', 15000);
+                
+                // 3. Load User Form
+                console.log('[INIT] Loading User Form...');
+                await loadScript('./user_form.js', 15000);
+                
+                // 4. Load Gemini Client
+                console.log('[INIT] Loading Gemini Telegram Client...');
+                await loadScript('./gemini_telegram_client.js', 15000, 'module');
+                
+                // 5. Load Enhancement Client
+                console.log('[INIT] Loading Client Enhancements...');
+                await loadScript('./gemini_telegram_client_enhancement.js', 15000);
+                
+                // 6. Initialize the system
+                initializeSystem();
+                
+            } catch (error) {
+                console.error('[INIT] Script loading error:', error);
+                if (window.uiController) {
+                    window.uiController.updateStatusBanner('Failed to load required components. Please refresh.', 'error');
+                } else {
+                    const status = document.getElementById('status');
+                    if (status) status.textContent = 'Failed to load required components. Please refresh.';
+                }
+            }
+        }
+        
+        // Start the initialization process
+        initializeApp();
+    </script>
+    
+    <script>
+        function initializeSystem() {
+            console.log('[INIT] Starting system initialization...');
+            
+            // 1. Extract session token from URL (PRESERVE EXISTING LOGIC)
+            const urlParams = new URLSearchParams(window.location.search);
+            const sessionToken = urlParams.get('session');
+            
+            if (!sessionToken) {
+                console.error('[INIT] No session token found in URL');
+                if (window.uiController) {
+                    window.uiController.updateStatusBanner('Invalid session. Please restart from Telegram.', 'error');
+                }
+                return;
+            }
+            
+            // 2. Initialize Telegram WebApp (PRESERVE EXISTING)
+            if (window.Telegram && window.Telegram.WebApp) {
+                try {
+                    Telegram.WebApp.ready();
+                    Telegram.WebApp.expand();
+                    console.log('[INIT] Telegram WebApp initialized');
+                } catch (error) {
+                    console.error('[INIT] Telegram WebApp error:', error);
+                }
+            }
+            
+            // 3. Initialize UI Controller (NEW)
+            if (!window.uiController && window.UIController) {
+                window.uiController = new window.UIController();
+                console.log('[INIT] UI Controller initialized');
+            }
+            
+            // 4. Initialize original Gemini client (PRESERVE EXISTING PATTERN)
+            setTimeout(() => {
+                if (!window.geminiClient && window.GeminiTelegramClient) {
+                    console.log('[INIT] Initializing original GeminiTelegramClient...');
+                    window.geminiClient = new window.GeminiTelegramClient();
+                    
+                    // 5. Apply enhancements after original client is ready
+                    if (window.enhanceGeminiClient) {
+                        window.enhanceGeminiClient(window.geminiClient);
+                        console.log('[INIT] Client enhancements applied');
+                    }
+                    
+                    console.log('[INIT] System initialization complete');
+                } else {
+                    console.error('[INIT] GeminiTelegramClient not available');
+                }
+            }, 500);
+        }
+        
+        // Global functions for onclick handlers
+        function toggleChatPanel(force) {
+            try {
+                if (window.uiController) {
+                    window.uiController.toggleChatWidget(force);
+                } else {
+                    console.warn('[Global] uiController not ready yet');
+                    // Retry after a short delay
+                    setTimeout(() => toggleChatPanel(force), 100);
+                }
+            } catch (error) {
+                console.error('[Global] Error toggling chat panel:', error);
+            }
+        }
+        
+        function handleConnect() {
+            try {
+                if (window.geminiClient) {
+                    if (window.geminiClient.isConnected && window.geminiClient.isConnected()) {
+                        window.geminiClient.disconnect();
+                    } else {
+                        window.geminiClient.connect();
+                    }
+                } else {
+                    console.warn('[Global] geminiClient not ready yet');
+                    if (window.uiController) {
+                        window.uiController.updateStatusBanner('Client not ready. Please wait...', 'error');
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error handling connect:', error);
+                if (window.uiController) {
+                    window.uiController.updateStatusBanner('Connection error. Please refresh.', 'error');
+                }
+            }
+        }
+        
+        function sendTextMessage() {
+            try {
+                const textInput = document.getElementById('chatTextInput');
+                if (textInput && textInput.value.trim()) {
+                    if (window.geminiClient && window.geminiClient.sendTextMessage) {
+                        if (window.geminiClient.sendTextMessage(textInput.value.trim())) {
+                            textInput.value = '';
+                        }
+                    } else {
+                        console.warn('[Global] Text messaging not available');
+                        if (window.uiController) {
+                            window.uiController.updateStatusBanner('Text messaging not ready', 'error');
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error sending text message:', error);
+            }
+        }
+        
+        function handleChatKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendTextMessage();
+            }
+        }
+        
+        function showDebugInfo() {
+            try {
+                if (window.uiController && window.uiController.showDebugInfo) {
+                    window.uiController.showDebugInfo();
+                } else {
+                    // Fallback debug display
+                    const debugOverlay = document.getElementById('debugOverlay');
+                    const debugContent = document.getElementById('debugContent');
+                    if (debugOverlay && debugContent) {
+                        let html = '<h3>Basic Debug Info</h3>';
+                        html += `<p><strong>UI Controller:</strong> ${!!window.uiController}</p>`;
+                        html += `<p><strong>Gemini Client:</strong> ${!!window.geminiClient}</p>`;
+                        html += `<p><strong>URL:</strong> ${window.location.href}</p>`;
+                        html += `<p><strong>Time:</strong> ${new Date().toISOString()}</p>`;
+                        debugContent.innerHTML = html;
+                        debugOverlay.style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error showing debug info:', error);
+            }
+        }
+        
+        function hideDebugInfo() {
+            try {
+                if (window.uiController && window.uiController.hideDebugInfo) {
+                    window.uiController.hideDebugInfo();
+                } else {
+                    const debugOverlay = document.getElementById('debugOverlay');
+                    if (debugOverlay) {
+                        debugOverlay.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('[Global] Error hiding debug info:', error);
+            }
+        }
+        
+        // Error handling for uncaught errors
+        window.addEventListener('error', function(event) {
+            console.error('[GLOBAL] Uncaught error:', event.error);
+            if (window.uiController) {
+                window.uiController.debugLog(`Uncaught error: ${event.error.message}`, true);
+            }
+        });
+        
+        // Unhandled promise rejection handling
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('[GLOBAL] Unhandled promise rejection:', event.reason);
+            if (window.uiController) {
+                window.uiController.debugLog(`Unhandled rejection: ${event.reason}`, true);
+            }
+        });
+        
+        console.log('[GLOBAL] Voice chat interface loaded');
+    </script>
+</body>
+</html>
