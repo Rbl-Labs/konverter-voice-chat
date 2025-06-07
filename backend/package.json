@@ -1,0 +1,44 @@
+{
+  "name": "gemini-websocket-proxy-aws",
+  "version": "1.0.0",
+  "description": "WebSocket proxy for Gemini Live API on AWS EC2",
+  "main": "gemini_websocket_proxy.js",
+  "scripts": {
+    "start": "node gemini_websocket_proxy.js",
+    "dev": "nodemon gemini_websocket_proxy.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "setup": "npm install && npm run build",
+    "build": "echo \"Build complete\"",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop gemini-websocket-proxy",
+    "pm2:restart": "pm2 restart gemini-websocket-proxy",
+    "pm2:logs": "pm2 logs gemini-websocket-proxy"
+  },
+  "keywords": [
+    "gemini",
+    "websocket",
+    "proxy",
+    "aws",
+    "ec2",
+    "live-api"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.0.1",
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "node-fetch": "^2.7.0",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "pm2": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

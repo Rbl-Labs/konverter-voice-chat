@@ -1,0 +1,404 @@
+{
+  "name": "Gemini TTS Send Email",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "email-agent",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        80
+      ],
+      "id": "c2fa13bd-8845-48dd-ac82-b1e4dc64ca2d",
+      "name": "Email Agent Webhook",
+      "webhookId": "email-agent-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Updated Function Call Processor for Template-Based Email\nconst webhookData = $input.item.json;\nconst body = webhookData.body || {};\n\n// Extract function call data from webhook body\nconst functionCall = body.functionCall;\nconst sessionId = body.sessionId || 'default_session';\nconst userId = body.userId || 'default_user';\nconst userContext = body.userContext || 'No context provided';\n\nconsole.log('=== EMAIL AGENT DEBUG ===');\nconsole.log('Extracted functionCall:', functionCall);\nconsole.log('Extracted sessionId:', sessionId);\n\nif (!functionCall) {\n  return [{\n    error: \"No function call data received\",\n    debug: {\n      receivedBody: body,\n      bodyKeys: Object.keys(body || {}),\n      webhookData: webhookData\n    }\n  }];\n}\n\nconst { name, args, id } = functionCall;\n\n// Only handle email function\nif (name !== \"send_konverter_email\") {\n  return [{\n    error: `Unknown function: ${name}`,\n    supportedFunctions: ['send_konverter_email']\n  }];\n}\n\n// Extract and prepare email parameters for regular nodes\nconst recipientEmail = args.recipient_email;\nconst emailSubject = args.email_subject || \"Konverter.ai - AI Agent Marketplace\";\nconst customMessage = args.custom_message || \"\";\nconst emailPurpose = args.email_purpose || \"general_info\";\n\n// Return clean data for next nodes (no AI prompt needed)\nreturn [{\n  functionCallId: id,\n  functionName: name,\n  sessionId,\n  userId,\n  userContext,\n  \n  // Email parameters for Gmail node\n  recipientEmail,\n  emailSubject,\n  customMessage,\n  emailPurpose,\n  \n  // Google Drive info\n  googleDriveFileId: \"190bZBoQEidIwfZo8Wu_G_QK7GPIGf2t4\",\n  attachmentName: \"konverter_onepager.pdf\"\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        80
+      ],
+      "id": "bd0afac6-c01c-4b16-928b-2274f06c22ed",
+      "name": "Function Call Processor"
+    },
+    {
+      "parameters": {
+        "jsCode": "const processorData = $('Function Call Processor').first().json;\nconst gmailOutput = $('Send One Pager').first().json;\n\n// If we reach this node, Gmail node succeeded (otherwise error would have been thrown)\nconst success = true;\n\n// Extract email details from processor\nconst recipient = processorData.recipientEmail;\nconst subject = processorData.emailSubject;\nconst purpose = processorData.emailPurpose;\nconst customMessage = processorData.customMessage;\n\n// Create success message\nconst message = `✅ Email sent successfully to ${recipient}!\n\n📧 Subject: \"${subject}\"\n📎 Konverter.ai one-pager attached\n🎯 Purpose: ${purpose}\n⏰ Sent: ${new Date().toLocaleString()}\n\nThe recipient received our complete company overview with key metrics, traction details, and market opportunity information.`;\n\n// Format response for Gemini Live API\nconst functionResponse = {\n  id: processorData.functionCallId,\n  name: processorData.functionName,\n  response: {\n    success: true,\n    email_sent: true,\n    recipient: recipient,\n    subject: subject,\n    attachment_included: true,\n    message: message,\n    details: {\n      email_purpose: purpose,\n      custom_message: customMessage,\n      timestamp: new Date().toISOString(),\n      gmail_response: gmailOutput // Include Gmail node response for debugging\n    },\n    scheduling: \"INTERRUPT\" // Tell Gemini to interrupt with this result\n  }\n};\n\nreturn [functionResponse];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        80
+      ],
+      "id": "fc771a1d-7f6d-43e8-8b91-fab9dee6b68e",
+      "name": "Function Response Formatter"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        900,
+        80
+      ],
+      "id": "10ee3f94-50e1-44f3-ad8c-56dd65ac1dae",
+      "name": "Return Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if we actually have success data from previous nodes\nlet isSuccess = false;\nlet gmailSuccess = null;\nlet functionResponseSuccess = null;\n\n// Check if Function Response Formatter node executed successfully\ntry {\n  const functionResponseNode = $('Function Response Formatter').first();\n  if (functionResponseNode && functionResponseNode.json) {\n    functionResponseSuccess = functionResponseNode.json;\n    isSuccess = functionResponseSuccess.response && functionResponseSuccess.response.success === true;\n    console.log('Function Response Formatter data found:', functionResponseSuccess);\n  }\n} catch (e) {\n  console.log('Function Response Formatter not executed or has no data');\n}\n\n// Check if Gmail node executed successfully  \ntry {\n  const gmailNode = $('Send One Pager').first();\n  if (gmailNode && gmailNode.json && !gmailNode.json.error) {\n    gmailSuccess = gmailNode.json;\n    console.log('Gmail node executed successfully:', gmailSuccess);\n    // If Gmail succeeded and we don't have function response, Gmail success means overall success\n    if (!isSuccess && gmailSuccess) {\n      isSuccess = true;\n    }\n  }\n} catch (e) {\n  console.log('Gmail node not executed successfully');\n}\n\nconst processorData = $('Function Call Processor').first()?.json;\n\n// If we have success from either Function Response Formatter or Gmail, return success\nif (isSuccess && functionResponseSuccess) {\n  console.log('Returning success response from Function Response Formatter');\n  return [functionResponseSuccess];\n}\n\n// If Gmail succeeded but no Function Response Formatter data, create success response\nif (gmailSuccess && !functionResponseSuccess) {\n  console.log('Creating success response based on Gmail success');\n  const successResponse = {\n    id: processorData?.functionCallId || 'unknown_call',\n    name: processorData?.functionName || 'send_konverter_email',\n    response: {\n      success: true,\n      email_sent: true,\n      recipient: processorData?.recipientEmail || 'unknown',\n      subject: processorData?.emailSubject || 'unknown',\n      attachment_included: true,\n      message: `✅ Email sent successfully to ${processorData?.recipientEmail || 'recipient'}!\\n\\n📧 Subject: \"${processorData?.emailSubject || 'Konverter.ai - AI Agent Marketplace'}\"\\n📎 Konverter.ai one-pager attached\\n🎯 Purpose: ${processorData?.emailPurpose || 'general_info'}\\n⏰ Sent: ${new Date().toLocaleString()}\\n\\nThe recipient received our complete company overview with key metrics, traction details, and market opportunity information.`,\n      details: {\n        email_purpose: processorData?.emailPurpose || 'general_info',\n        custom_message: processorData?.customMessage || '',\n        timestamp: new Date().toISOString(),\n        gmail_response: gmailSuccess\n      },\n      scheduling: \"INTERRUPT\"\n    }\n  };\n  return [successResponse];\n}\n\n// Only if we reach here, we have a real error\nconsole.log('Creating error response - no success indicators found');\n\n// Get error from the current input (this node receives error data)\nconst inputError = $input.first().json.error;\nconst errorMessage = $input.first().json.message;\n\n// Try to get error details from Gmail or Google Drive nodes if they failed\nlet gmailError = null;\nlet driveError = null;\n\ntry {\n  const gmailNode = $('Send One Pager').first();\n  if (gmailNode?.json?.error) {\n    gmailError = gmailNode.json.error;\n  }\n} catch (e) {\n  // Gmail node might not have executed\n}\n\ntry {\n  const driveNode = $('Download One Pager').first();\n  if (driveNode?.json?.error) {\n    driveError = driveNode.json.error;\n  }\n} catch (e) {\n  // Drive node might not have executed\n}\n\n// Determine the primary error\nconst error = inputError || gmailError || driveError || errorMessage || 'Unknown error occurred in email workflow';\n\n// Create comprehensive error response for Gemini\nconst errorResponse = {\n  id: processorData?.functionCallId || 'unknown_call',\n  name: processorData?.functionName || 'send_konverter_email',\n  response: {\n    success: false,\n    email_sent: false,\n    error: true,\n    recipient: processorData?.recipientEmail || 'unknown',\n    subject: processorData?.emailSubject || 'unknown',\n    attachment_included: false,\n    message: `❌ Email sending failed: ${error}\\n\\nPossible causes:\\n- Invalid email address\\n- Gmail authentication issues  \\n- Google Drive access problems\\n- Network connectivity issues\\n\\nPlease verify the recipient email and try again.`,\n    details: {\n      error_type: 'workflow_error',\n      error_details: error,\n      gmail_error: gmailError,\n      drive_error: driveError,\n      input_error: inputError,\n      timestamp: new Date().toISOString(),\n      session_id: processorData?.sessionId\n    },\n    scheduling: \"INTERRUPT\"\n  }\n};\n\nreturn [errorResponse];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        80
+      ],
+      "id": "95546763-009b-4462-b0c2-022718e1406a",
+      "name": "Error Handler"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Function Call Processor').item.json.recipientEmail }}",
+        "subject": "={{ $('Function Call Processor').item.json.emailSubject }}",
+        "message": "=<html> <head> <style>   body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }   .container { max-width: 600px; margin: 0 auto; padding: 20px; }   .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 25px; text-align: center; border-radius: 8px 8px 0 0; }   .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }   .highlight { background: #e8f4fd; padding: 15px; margin: 15px 0; border-left: 4px solid #667eea; border-radius: 4px; }   .footer { text-align: center; margin-top: 30px; color: #666; border-top: 1px solid #ddd; padding-top: 20px; }   ul { padding-left: 20px; }   li { margin: 8px 0; } </style> </head> <body> <div class=\"container\">   <div class=\"header\">     <h1 style=\"margin: 0; font-size: 28px;\">Konverter.ai</h1>     <p style=\"margin: 10px 0 0 0; font-size: 16px; opacity: 0.9;\">\"From Idea → Agent → Results... Before the Coffee Brews\"</p>   </div>      <div class=\"content\">     <p>Dear Valued Partner,</p>          {{ $('Function Call Processor').item.json.customMessage ? '<p><strong>Personal Message:</strong> ' + $('Function Call Processor').item.json.customMessage + '</p>' : '' }}          <p>I'm excited to share Konverter.ai's vision for <strong>democratizing AI agents</strong> through our innovative no-code marketplace.</p>          <div class=\"highlight\">       <h3 style=\"margin-top: 0; color: #667eea;\">🚀 Key Highlights:</h3>       <ul style=\"margin-bottom: 0;\">         <li><strong>No-Code AI Marketplace:</strong> Build and deploy AI agents without any coding experience</li>         <li><strong>80% Creator Revenue Share:</strong> Industry-leading monetization model for agent creators</li>         <li><strong>$200K Google Partnership:</strong> Strategic validation from tech industry leaders</li>         <li><strong>8 Beta Customers:</strong> Including the largest US face-to-face fundraiser</li>         <li><strong>Market Growth:</strong> $5.4B → $50.3B projected growth (45.8% CAGR)</li>       </ul>     </div>          <p><strong>💡 Hero Use Case:</strong> Elite sales closer creates \"Agent John\" → deploys on 50K leads → achieves +76% conversion rates, saves $10K/month → earns passive income while Konverter takes 20% commission.</p>          <p>We're currently <strong>raising $3M seed at $12-15M valuation</strong>, targeting 150 paying organizations by Q4 2026 with projected $4M ARR and 70% gross margins.</p>          <p>I'd love to discuss how Konverter.ai can benefit your organization or explore potential partnership opportunities.</p>          <p>Best regards,<br>     <strong>Josh Murchie</strong><br>     CEO & Co-Founder, Konverter.ai<br>     📧 <a href=\"mailto:josh@konverter.ai\" style=\"color: #667eea;\">josh@konverter.ai</a></p>          <div class=\"footer\">       <p><em>📎 Please find our detailed company one-pager attached for complete information about our platform, traction, and market opportunity.</em></p>     </div>   </div> </div> </body> </html>",
+        "options": {
+          "appendAttribution": false,
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "pdf_attachment"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        280,
+        80
+      ],
+      "id": "fd1d6f19-0408-4c6a-8e06-ea4101e5d14f",
+      "name": "Send One Pager",
+      "webhookId": "dd9c3024-9879-4352-8537-20944cbf1f3d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "VXqmetKhNha4FlNh",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "190bZBoQEidIwfZo8Wu_G_QK7GPIGf2t4",
+          "mode": "list",
+          "cachedResultName": "konverter_onepager.pdf",
+          "cachedResultUrl": "https://drive.google.com/file/d/190bZBoQEidIwfZo8Wu_G_QK7GPIGf2t4/view?usp=drivesdk"
+        },
+        "options": {
+          "binaryPropertyName": "pdf_attachment"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        40,
+        80
+      ],
+      "id": "6c131913-07b8-4f79-8b0a-56e723c764a8",
+      "name": "Download One Pager",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZGf5WcI16rcfzU9j",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1AK__IuFRmDy_yyy_opZbUO7Bj6I5S6OHm1M1_ZQK4Is",
+          "mode": "list",
+          "cachedResultName": "konverter_leads",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1AK__IuFRmDy_yyy_opZbUO7Bj6I5S6OHm1M1_ZQK4Is/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 326031048,
+          "mode": "list",
+          "cachedResultName": "Email Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1AK__IuFRmDy_yyy_opZbUO7Bj6I5S6OHm1M1_ZQK4Is/edit#gid=326031048"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sessionId": "={{ $('Email Agent Webhook').item.json.body.sessionId }}",
+            "recipientEmail": "={{ $json.response.recipient }}",
+            "emailSubject": "={{ $json.response.subject }}",
+            "emailPurpose": "={{ $json.response.details.email_purpose }}",
+            "attachmentIncluded": "={{ $json.response.attachment_included }}",
+            "attachmentName": "={{ $('Function Call Processor').item.json.attachmentName }}",
+            "functionCallId": "={{ $('Function Call Processor').item.json.functionCallId }}",
+            "gmailResponse": "={{ $('Send One Pager').item.json.labelIds[2] }}",
+            "time": "={{ $json.response.details.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "sessionId",
+              "displayName": "sessionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recipientEmail",
+              "displayName": "recipientEmail",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emailSubject",
+              "displayName": "emailSubject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "emailPurpose",
+              "displayName": "emailPurpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "attachmentIncluded",
+              "displayName": "attachmentIncluded",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "attachmentName",
+              "displayName": "attachmentName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "functionCallId",
+              "displayName": "functionCallId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "gmailResponse",
+              "displayName": "gmailResponse",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "time",
+              "displayName": "time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        720,
+        -120
+      ],
+      "id": "8a3e5112-7f86-428f-bdee-564a7346ae07",
+      "name": "Save Email Info",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "P0ns5uCifefSO2uP",
+          "name": "Google Sheets TEAM@LOMEAI"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "pinData": {
+    "Email Agent Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.lomeai.com",
+            "user-agent": "TelegramVoiceBot/3.0",
+            "content-length": "293",
+            "accept": "*/*",
+            "accept-encoding": "gzip,deflate",
+            "content-type": "application/json",
+            "x-forwarded-for": "51.21.55.104",
+            "x-forwarded-host": "n8n.lomeai.com",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "b78b200465b1",
+            "x-real-ip": "51.21.55.104"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "functionCall": {
+              "id": "function-call-10122262542480852941",
+              "name": "send_konverter_email",
+              "args": {
+                "recipient_email": "daniel.engevik@gmail.com",
+                "email_purpose": "general_info"
+              }
+            },
+            "sessionId": "voice_7690494220_1749104741537",
+            "userId": "voice_user_voice_76",
+            "userContext": "GET request function call"
+          },
+          "webhookUrl": "https://n8n.lomeai.com/webhook/email-agent",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Email Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Function Call Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function Call Processor": {
+      "main": [
+        [
+          {
+            "node": "Download One Pager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function Response Formatter": {
+      "main": [
+        [
+          {
+            "node": "Error Handler",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Email Info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Handler": {
+      "main": [
+        [
+          {
+            "node": "Return Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send One Pager": {
+      "main": [
+        [
+          {
+            "node": "Function Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download One Pager": {
+      "main": [
+        [
+          {
+            "node": "Send One Pager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c2b91199-71a3-4f26-8ecd-6110cded77b3",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "785bea612cdfcdd340a791deb7ee804cc9ff9969931c4d2a5dda1c06f330edf0"
+  },
+  "id": "bZ77M9EL0Xd1sgCg",
+  "tags": []
+}

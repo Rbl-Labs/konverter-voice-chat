@@ -1,0 +1,922 @@
+{
+  "name": "Telegram Voice Bot Handler Konverter",
+  "nodes": [
+    {
+      "parameters": {
+        "multipleMethods": true,
+        "httpMethod": [
+          "POST"
+        ],
+        "path": "telegram-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3f04a051-2c85-4964-a833-90022b43a3cb",
+      "name": "Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -2340,
+        1820
+      ],
+      "webhookId": "telegram-bot-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract user info and message type from Telegram webhook\nconst telegramData = $input.item.json.body || $input.item.json;\nconst message = telegramData.message || telegramData.callback_query?.message;\nconst user = message?.from || telegramData.callback_query?.from;\n\nif (!user) {\n  return { error: 'No user data found', rawData: telegramData };\n}\n\nconst userId = user.id.toString();\nconst chatId = message?.chat?.id || telegramData.callback_query?.message?.chat?.id;\nconst messageType = telegramData.message?.voice ? 'voice' : \n                   telegramData.message?.text ? 'text' : \n                   telegramData.callback_query ? 'callback' : 'unknown';\n\n// Process different message types\nlet processedData = {\n  userId,\n  chatId,\n  messageType,\n  userName: user.first_name || 'User',\n  timestamp: new Date().toISOString(),\n  originalTelegramData: telegramData // ← Add this line\n};\n\nif (messageType === 'voice') {\n  processedData.voiceFileId = telegramData.message.voice.file_id;\n  processedData.voiceDuration = telegramData.message.voice.duration;\n} else if (messageType === 'text') {\n  processedData.text = telegramData.message.text;\n} else if (messageType === 'callback') {\n  processedData.callbackData = telegramData.callback_query.data;\n}\n\nreturn processedData;"
+      },
+      "id": "649ea91e-02cc-4263-b89b-d1b56f589644",
+      "name": "Process Telegram Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2080,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "=text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "e9e065a2-8e56-4a25-9e74-0d02fd3f522b"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "287863a1-5946-4a6f-ba25-6dfa500d7bfd",
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "voice",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "65109b17-8fab-47c2-9302-08039006dd97",
+                    "leftValue": "={{ $json.messageType }}",
+                    "rightValue": "callback",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5ebca1d6-e3f1-4a50-866d-a351760f101f",
+      "name": "Message Type Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -1860,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle text commands like /start and /call\nconst text = $input.item.json.text;\nconst userId = $input.item.json.userId;\nconst chatId = $input.item.json.chatId;\nconst userName = $input.item.json.userName;\n\n// Handle /start command\nif (text === '/start') {\n  return {\n    action: 'send_welcome',\n    chatId,\n    userId,\n    userName,\n    message: `👋 Welcome to Konverter.ai Assistant!\\n\\nI can help you:\\n• Build and monetize AI agents\\n• Learn about investment opportunities\\n• Scale your business with AI\\n\\nClick below to start a conversation!`,\n    showVoiceButton: true\n  };\n}\n\n// Handle /call command\nif (text === '/call' || text.startsWith('/call')) {\n  // Generate unique session ID\n  const sessionId = `voice_${userId}_${Date.now()}`;\n  \n  // Store session in workflow static data\n  const workflowData = $getWorkflowStaticData('global');\n  workflowData[`session_${sessionId}`] = {\n    userId,\n    chatId,\n    status: 'pending',\n    createdAt: new Date().toISOString()\n  };\n  \n  return {\n    action: 'create_voice_session',\n    chatId,\n    userId,\n    userName,\n    sessionId,\n    message: `🎙️ Voice session ready, ${userName}!\\n\\nTap the button below to start your conversation with Gemini AI.`,\n    showVoiceButton: true\n  };\n}\n\n// Handle /help command\nif (text === '/help') {\n  return {\n    action: 'send_help',\n    chatId,\n    userId,\n    userName,\n    message: `📖 Konverter.ai Assistant\\n\\n🎙️ /start - Start the bot\\n📞 /call - Start voice conversation\\n❓ /help - Show this help\\n\\nFor best results, use the Voice Chat button for real-time conversations!`,\n    showVoiceButton: true\n  };\n}\n\n// Default response for other text\nreturn {\n  action: 'send_text_response',\n  chatId,\n  userId,\n  userName,\n  message: `I received your message: \"${text}\"\\n\\nUse /call or the button below to start a voice conversation!`,\n  showVoiceButton: true\n};"
+      },
+      "id": "f11f6f5b-18b9-4f87-bd72-b270c7dd70aa",
+      "name": "Handle Text Commands",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1640,
+        1620
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle voice message - redirect to real-time chat\nconst userId = $input.item.json.userId;\nconst chatId = $input.item.json.chatId;\nconst userName = $input.item.json.userName;\nconst voiceFileId = $input.item.json.voiceFileId;\nconst duration = $input.item.json.voiceDuration;\n\n// Log voice message attempt\nconst workflowData = $getWorkflowStaticData('global');\nconst memoryKey = `voice_attempts_${userId}`;\nconst attempts = workflowData[memoryKey] || 0;\nworkflowData[memoryKey] = attempts + 1;\n\nreturn {\n  action: 'redirect_to_realtime',\n  chatId,\n  userId,\n  userName,\n  voiceFileId,\n  duration,\n  attempts: attempts + 1,\n  message: `🎙️ Hi ${userName}! I see you sent a voice message (${duration}s).\\n\\n💡 For real-time conversation with Konverter.ai Assistant, use the Voice Chat button below. This allows natural back-and-forth dialogue instead of one-way messages.`,\n  showVoiceButton: true\n};"
+      },
+      "id": "c3ac4fb9-da1e-499a-8622-cb6197d4ac6c",
+      "name": "Handle Voice Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1640,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle callback queries (button presses)\nconst callbackData = $input.item.json.callbackData;\nconst userId = $input.item.json.userId;\nconst chatId = $input.item.json.chatId;\nconst userName = $input.item.json.userName;\n\n// Get the actual callback query ID from the original Telegram data\nconst telegramData = $input.item.json.originalTelegramData || {};\nconst callbackQueryId = telegramData.callback_query?.id;\n\n// Extract additional user data from the original Telegram data\nconst from = telegramData.callback_query?.from || {};\nconst firstName = from.first_name || userName || '';\nconst lastName = from.last_name || '';\nconst username = from.username || '';\nconst languageCode = from.language_code || '';\nconst isPremium = from.is_premium || false;\n\nif (callbackData === 'start_voice_chat') {\n  // Generate session for Mini App\n  const sessionId = `voice_${userId}_${Date.now()}`;\n  const timestamp = Date.now();\n  \n  // Create session data object\n  const sessionData = {\n    userId,\n    firstName,\n    lastName,\n    username,\n    languageCode,\n    chatId,\n    isPremium\n  };\n  \n  // Base64 encode the session token with user data\n  const sessionToken = Buffer.from(`${userId}:${sessionId}:${timestamp}:${JSON.stringify(sessionData)}`).toString('base64');\n  \n  // Store session data\n  const workflowData = $getWorkflowStaticData('global');\n  workflowData[`session_${sessionId}`] = {\n    userId,\n    chatId,\n    userName: firstName,\n    token: sessionToken,\n    status: 'active',\n    createdAt: new Date().toISOString()\n  };\n  \n  // Mini App URL \n  const miniAppUrl = `https://rbl-labs.github.io/konverter-voice-chat/?session=${sessionToken}`;\n  \n  return {\n    action: 'open_mini_app',\n    chatId,\n    userId,\n    userName: firstName,\n    sessionId,\n    sessionToken,\n    callbackQueryId,\n    miniAppUrl,\n    message: `🎙️ Opening voice chat for ${firstName}...`,\n    // Add telegramUserData with the correct field names (with Telegram suffix)\n    telegramUserData: {\n      userIdTelegram: userId,\n      firstNameTelegram: firstName,\n      lastNameTelegram: lastName,\n      usernameTelegram: username,\n      languageCodeTelegram: languageCode,\n      chatIdTelegram: chatId,\n      isPremiumTelegram: isPremium\n    }\n  };\n}\n\nif (callbackData === 'close_session') {\n  return {\n    action: 'close_session',\n    chatId,\n    userId,\n    userName,\n    message: `✅ Voice session closed, ${userName}.`\n  };\n}\n\nreturn {\n  action: 'unknown_callback',\n  chatId,\n  userId,\n  userName,\n  message: 'Unknown action.'\n};\n\n\n"
+      },
+      "id": "39d1f2c8-39b7-4928-b5fd-9e5eb9ad7bb8",
+      "name": "Handle Callback Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1640,
+        2040
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_welcome",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "4760b0da-7f37-4373-9d45-65eefa287914"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "131a3f7a-b3df-4918-8c53-a5e6d2479ba5",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "create_voice_session",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "d5b5ff02-f9bb-4d01-89c9-b75ef69c3ccc",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_help",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "08cd96f8-c981-43b6-8307-d98fb685604c",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "send_text_response",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "3e6b8bbd-e09a-4c52-9386-7156cf065dab",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "redirect_to_realtime",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "e582102e-ca44-4bc7-a770-bb2ba83a383a",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "open_mini_app",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "cd9b7d32-3a6d-42b2-a84f-cd9146941522",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "close_session",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "be43029d-c697-4f75-9fd3-ef0459aba647",
+      "name": "Action Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -1420,
+        1736
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot7690494220:AAHS-n34OBngz4BVRGSgrlP7XuIOh5G8YXI/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ { \"inline_keyboard\": [[ { \"text\": \"🚀 Welcome to Konverter.ai Assistant\", \"callback_data\": \"start_voice_chat\" } ]] } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b5d40572-63f9-4ee7-8de1-bb69a43745ac",
+      "name": "Send Welcome Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1200,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot7690494220:AAHS-n34OBngz4BVRGSgrlP7XuIOh5G8YXI/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ { \"inline_keyboard\": [[ { \"text\": \"🎙️ Start Voice Chat\", \"callback_data\": \"start_voice_chat\" } ]] } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "add4d9f2-ec97-4ea4-85db-bcdb91ec1b24",
+      "name": "Send Voice Session Ready",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1200,
+        1420
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot7690494220:AAHS-n34OBngz4BVRGSgrlP7XuIOh5G8YXI/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ { \"inline_keyboard\": [[ { \"text\": \"🎙️ Start Voice Chat\", \"callback_data\": \"start_voice_chat\" } ]] } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "53fc00ff-04a3-46b3-bf45-b9ab45a66a9d",
+      "name": "Send Help Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1200,
+        1620
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot7690494220:AAHS-n34OBngz4BVRGSgrlP7XuIOh5G8YXI/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ { \"inline_keyboard\": [[ { \"text\": \"🎙️ Start Voice Chat\", \"callback_data\": \"start_voice_chat\" } ]] } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "20da3f7f-0a0d-445d-be15-9994dcd092ca",
+      "name": "Send Text Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1180,
+        1780
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot7690494220:AAHS-n34OBngz4BVRGSgrlP7XuIOh5G8YXI/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "reply_markup",
+              "value": "={{ { \"inline_keyboard\": [[ { \"text\": \"🎙️ Try Real-Time Voice Chat\", \"callback_data\": \"start_voice_chat\" } ]] } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bbe60884-599e-4c03-a4a6-51f8458468ec",
+      "name": "Send Voice Redirect Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1200,
+        2020
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.telegram.org/bot7690494220:AAHS-n34OBngz4BVRGSgrlP7XuIOh5G8YXI/sendMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2b12c273-31f9-4425-9fa4-e7e124bd40f4",
+      "name": "Send Session Closed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -1180,
+        2420
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "id": "37073a4e-b1f1-48d6-8350-6f0f70e866fe",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -780,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "🚀 Open Konverter.ai Assistant",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "🚀 Opening the Konverter.ai Assistant...",
+                    "additionalFields": {
+                      "url": "={{ $json.miniAppUrl }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1180,
+        2220
+      ],
+      "id": "7f3500d3-57e5-437a-a99a-504d4c1f92f5",
+      "name": "Telegram",
+      "webhookId": "df6a6f7e-d18d-4795-829c-95283623291d",
+      "credentials": {
+        "telegramApi": {
+          "id": "oSUwQ7BKzEgX5rZM",
+          "name": "Konverter Telegram Bot"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Telegram Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.lomeai.com",
+            "content-length": "831",
+            "accept-encoding": "gzip, deflate",
+            "content-type": "application/json",
+            "x-forwarded-for": "91.108.5.36",
+            "x-forwarded-host": "n8n.lomeai.com",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "b78b200465b1",
+            "x-real-ip": "91.108.5.36"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "update_id": 548548171,
+            "callback_query": {
+              "id": "1508742901872340314",
+              "from": {
+                "id": 351281580,
+                "is_bot": false,
+                "first_name": "Mik",
+                "last_name": "Lomeai.com",
+                "username": "mikmiro",
+                "language_code": "en",
+                "is_premium": true
+              },
+              "message": {
+                "message_id": 24,
+                "from": {
+                  "id": 7690494220,
+                  "is_bot": true,
+                  "first_name": "KonverterLive",
+                  "username": "KonverterLivebot"
+                },
+                "chat": {
+                  "id": 351281580,
+                  "first_name": "Mik",
+                  "last_name": "Lomeai.com",
+                  "username": "mikmiro",
+                  "type": "private"
+                },
+                "date": 1748098933,
+                "text": "🎙️ Welcome to Gemini Voice Chat, Mik!\n\nThis bot allows you to have real-time voice conversations with Gemini AI.\n\nTap the button below to start talking!",
+                "reply_markup": {
+                  "inline_keyboard": [
+                    [
+                      {
+                        "text": "🎙️ Start Voice Chat",
+                        "callback_data": "start_voice_chat"
+                      }
+                    ]
+                  ]
+                }
+              },
+              "chat_instance": "-6858476485764948323",
+              "data": "start_voice_chat"
+            }
+          },
+          "webhookUrl": "https://n8n.lomeai.com/webhook/telegram-webhook",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Telegram Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Telegram Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Telegram Input": {
+      "main": [
+        [
+          {
+            "node": "Message Type Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message Type Switch": {
+      "main": [
+        [
+          {
+            "node": "Handle Text Commands",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Voice Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Callback Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Text Commands": {
+      "main": [
+        [
+          {
+            "node": "Action Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Voice Message": {
+      "main": [
+        [
+          {
+            "node": "Action Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Callback Query": {
+      "main": [
+        [
+          {
+            "node": "Action Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Router": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Voice Session Ready",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Help Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Text Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Voice Redirect Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Session Closed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Welcome Message": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Voice Session Ready": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Help Message": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Text Response": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Voice Redirect Message": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Session Closed": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "28f9016c-d26f-439d-9504-df62cef003ff",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "785bea612cdfcdd340a791deb7ee804cc9ff9969931c4d2a5dda1c06f330edf0"
+  },
+  "id": "tCAhtn29vdLGNmWd",
+  "tags": []
+}
