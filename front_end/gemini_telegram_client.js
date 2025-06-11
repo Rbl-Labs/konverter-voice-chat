@@ -1,7 +1,7 @@
 /**
  * Consolidated Gemini Telegram Client with Voice+Text Support
- * Version: 4.0.0 - Merged enhancement features, removed code overlaps and race conditions
- * Features: Voice chat, Text chat, Function execution feedback, Enhanced error handling
+ * Version: 4.1.0 - Fixed VAD configuration and enabled user interruptions during AI speech
+ * Features: Voice chat, Text chat, Function execution feedback, Enhanced error handling, Duplex audio
  */
 import { AdvancedAudioRecorder } from './advanced_audio_recorder.js';
 import { PCMStreamPlayer } from './pcm_stream_player.js';
@@ -800,11 +800,16 @@ class GeminiTelegramClient {
     handlePlaybackStart() { 
         this.log('AI audio playback started (PCMStreamPlayer)'); 
         this.state.aiPlayedAudioThisTurn = true;
-        if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording && !this.advancedRecorder.isSuspended) {
-            this.log('Suspending user mic for AI speech playback.');
-            this.advancedRecorder.suspendMic();
-            if(window.uiController) window.uiController.setUserSpeaking(false); 
-        }
+        
+        // CRITICAL FIX: Keep microphone ACTIVE during AI speech to allow interruptions
+        // The old code suspended the mic, preventing user interruptions entirely
+        // if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording && !this.advancedRecorder.isSuspended) {
+        //     this.log('Suspending user mic for AI speech playback.');
+        //     this.advancedRecorder.suspendMic();
+        //     if(window.uiController) window.uiController.setUserSpeaking(false); 
+        // }
+        
+        this.log('Keeping microphone active during AI speech to enable interruptions');
         if (window.uiController) window.uiController.setAISpeaking(true); 
     }
 
@@ -813,14 +818,9 @@ class GeminiTelegramClient {
         if (window.uiController) {
             window.uiController.setAISpeaking(false);
         }
-        if (!this.state.isConversationPaused && this.advancedRecorder && this.advancedRecorder.isRecording) {
-            this.log('AI playback ended, resuming user mic.');
-            this.advancedRecorder.resumeMic();
-            if (window.uiController) {
-                window.uiController.updateInteractionButton('listening');
-                window.uiController.setUserSpeaking(true); 
-            }
-        }
+        
+        // Since we now keep the mic active during AI speech, no need to resume
+        this.log('Microphone remains active for continuous interruption capability');
     }
 
     handleAudioError(errorMsg) { 

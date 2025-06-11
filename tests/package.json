@@ -1,0 +1,28 @@
+{
+  "name": "konverter-voice-chat-tests",
+  "version": "1.0.0",
+  "description": "Unit tests for race condition prevention",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:race-conditions": "jest race-condition-tests.js",
+    "test:coverage": "jest --coverage"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "jest-environment-jsdom": "^29.0.0",
+    "@testing-library/jest-dom": "^5.16.0"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "setupFilesAfterEnv": ["@testing-library/jest-dom"],
+    "moduleFileExtensions": ["js", "json"],
+    "transform": {
+      "^.+\\.js$": "babel-jest"
+    },
+    "testMatch": [
+      "**/__tests__/**/*.js",
+      "**/?(*.)+(spec|test).js"
+    ]
+  }
+}

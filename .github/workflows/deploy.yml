@@ -32,6 +32,12 @@ jobs:
         cd backend
         node -e "require('./package.json')"
         echo "Backend package.json is valid"
+        
+    - name: Run race condition tests
+      run: |
+        cd tests
+        npm ci
+        npm run test:race-conditions
 
   deploy-frontend:
     needs: test

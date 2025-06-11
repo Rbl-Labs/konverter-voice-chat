@@ -13,10 +13,10 @@ class N8nModelConfig {
             realtimeInputConfig: {
                 automaticActivityDetection: {
                     disabled: false,
-                    startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-                    endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
-                    prefixPaddingMs: 0,
-                    silenceDurationMs: 0
+                    startOfSpeechSensitivity: 'START_SENSITIVITY_MEDIUM',
+                    endOfSpeechSensitivity: 'END_SENSITIVITY_MEDIUM',
+                    prefixPaddingMs: 100,
+                    silenceDurationMs: 800  // Wait 800ms before considering speech ended
                 }
             },
             inputAudioTranscription: {},

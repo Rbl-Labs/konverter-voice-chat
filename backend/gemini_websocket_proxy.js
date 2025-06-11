@@ -373,7 +373,7 @@ class EnhancedTelegramGeminiSession {
                 // System instruction will come from N8N with user data
                 inputAudioTranscription: {}, 
                 outputAudioTranscription: {}, 
-                realtimeInputConfig: { automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 0, silenceDurationMs: 0 } },
+                realtimeInputConfig: { automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_MEDIUM', endOfSpeechSensitivity: 'END_SENSITIVITY_MEDIUM', prefixPaddingMs: 100, silenceDurationMs: 800 } },
                 contextWindowCompression: {
                     triggerTokens: 25600,
                     slidingWindow: {
@@ -393,7 +393,7 @@ class EnhancedTelegramGeminiSession {
                 speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }, languageCode: 'en-US' }, 
                 // System instruction will come from N8N with user data
                 inputAudioTranscription: {}, 
-                realtimeInputConfig: { automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH', prefixPaddingMs: 0, silenceDurationMs: 0 } },
+                realtimeInputConfig: { automaticActivityDetection: { disabled: false, startOfSpeechSensitivity: 'START_SENSITIVITY_MEDIUM', endOfSpeechSensitivity: 'END_SENSITIVITY_MEDIUM', prefixPaddingMs: 100, silenceDurationMs: 800 } },
                 contextWindowCompression: {
                     triggerTokens: 32000,
                     slidingWindow: {
