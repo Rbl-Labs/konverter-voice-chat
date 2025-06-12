@@ -14,7 +14,7 @@ echo ""
 
 # Configuration
 SERVER="ubuntu@51.21.55.104"
-PEM_FILE="/Users/mikrbl/Downloads/gemini-websocket-proxy.pem"
+PEM_FILE="/Users/mikrbl/Documents/voice-chat-lomeai/notforgithub/gemini-websocket-proxy.pem"
 REMOTE_DIR="/home/ubuntu/gemini-websocket-proxy"
 SERVICE_NAME="gemini-websocket-proxy"
 LOCAL_JS_FILE="gemini_websocket_proxy.js"
